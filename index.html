@@ -26,7 +26,6 @@
         .layer-btn { background: none; border: none; padding: 8px 15px; cursor: pointer; font-size: 14px; }
         .layer-btn.active { background: #eee; font-weight: bold; }
         #btnStandard { border-bottom: 1px solid #ccc; }
-        /* 新增：云端配置按钮 */
         #btnCloudConfig { border-top: 1px solid #ccc; color: #007bff; font-weight: bold; }
 
         /* 底部 Save as 栏 (搜索时出现) */
@@ -86,7 +85,7 @@
         .checkin-actions { display: flex; align-items: center; gap: 10px; }
         .edit-checkin-btn { cursor: pointer; width: 18px; height: 18px; }
         .delete-checkin-btn { color: red; cursor: pointer; font-size: 18px; line-height: 1; }
-        .checkin-desc { margin-bottom: 10px; color: #666; font-size: 14px; white-space: pre-wrap; }
+        .checkin-desc { margin-bottom: 10px; color: #666; font-size: 14px; white-space: pre-wrap; line-height: 1.4; }
         .checkin-media-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
         .checkin-media-row img, .checkin-media-row video { height: 100px; border-radius: 4px; object-fit: cover; flex-shrink: 0; cursor: pointer; }
 
@@ -327,9 +326,6 @@
             return false;
         }
 
-        // ============================
-        // 云端配置弹窗逻辑
-        // ============================
         const cloudModal = document.getElementById('cloud-config-modal');
         
         document.getElementById('btnCloudConfig').onclick = () => {
@@ -339,18 +335,14 @@
             cloudModal.style.display = 'flex';
         };
 
-        document.getElementById('cancel-cfg-btn').onclick = () => {
-            cloudModal.style.display = 'none';
-        };
+        document.getElementById('cancel-cfg-btn').onclick = () => { cloudModal.style.display = 'none'; };
 
         document.getElementById('save-cfg-btn').onclick = () => {
             const ak = document.getElementById('cfg-ak').value.trim();
             const sk = document.getElementById('cfg-sk').value.trim();
             const bucket = document.getElementById('cfg-bucket').value.trim();
             
-            if(!ak || !sk || !bucket) {
-                alert("请填写完整信息！"); return;
-            }
+            if(!ak || !sk || !bucket) { alert("请填写完整信息！"); return; }
             
             localStorage.setItem('life_map_oss_ak', ak);
             localStorage.setItem('life_map_oss_sk', sk);
@@ -359,7 +351,7 @@
             if (initOSSClient()) {
                 alert("秘钥保存成功！正在尝试连接云端拉取数据...");
                 cloudModal.style.display = 'none';
-                loadDataAndRender(); // 重新加载数据
+                loadDataAndRender(); 
             }
         };
 
@@ -380,7 +372,7 @@
         
         let editingCheckinId = null;
         let currentExistingMedia = []; 
-        let currentResExistingMedia = []; // 住所独立管理的媒体列表
+        let currentResExistingMedia = []; 
 
         let currentViewerMedia = [];
         let currentViewerIndex = 0;
@@ -413,10 +405,7 @@
                 const urlObj = new URL(url);
                 const objectName = decodeURIComponent(urlObj.pathname.substring(1)); 
                 await client.delete(objectName);
-                console.log("物理删除成功:", objectName);
-            } catch (e) {
-                console.error("物理删除失败:", e);
-            }
+            } catch (e) { console.error("物理删除失败:", e); }
         }
 
         // ============================
@@ -430,15 +419,12 @@
                 const data = JSON.parse(dataStr);
                 
                 savedResidences = data.residences || [];
-                // 兼容住所的 media 字段
                 savedResidences.forEach(r => { if (!r.media) r.media = []; });
-
                 savedPlaces = data.places || [];
 
                 const coreRes = savedResidences.find(r => r.isCore);
                 if (coreRes) map.setCenter(coreRes.lnglat);
 
-                // 清除旧的 marker
                 for(let key in markersMap) map.remove(markersMap[key]);
                 for(let key in residenceMarkersMap) map.remove(residenceMarkersMap[key]);
                 markersMap = {}; residenceMarkersMap = {};
@@ -446,9 +432,7 @@
                 savedResidences.forEach(res => drawResidenceMarker(res));
                 savedPlaces.forEach(place => drawPlaceMarker(place));
                 updateFilterUI();
-            } catch (e) {
-                console.log("云端尚无数据文件或秘钥错误，将以空数据初始化。");
-            }
+            } catch (e) { console.log("云端无数据或加载失败"); }
         }
 
         function initMapSystem() {
@@ -488,11 +472,8 @@
                 }
             });
 
-            if (initOSSClient()) {
-                loadDataAndRender();
-            } else {
-                cloudModal.style.display = 'flex'; 
-            }
+            if (initOSSClient()) loadDataAndRender();
+            else cloudModal.style.display = 'flex'; 
         }
 
         const searchInput = document.getElementById('searchInput');
@@ -519,25 +500,17 @@
         cancelBtn.onclick = resetSearchState;
         
         // ============================
-        // 住所操作与媒体管理逻辑
+        // 住所操作与媒体展示专用侧边栏逻辑
         // ============================
         document.getElementById('houseIcon').onclick = async function() {
-            if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
+            if(!client) { alert("请先配置云端！"); return; }
             if (selectedLocation) {
                 const isFirst = savedResidences.length === 0;
-                const newRes = {
-                    id: 'res_' + Date.now(),
-                    lnglat: selectedLocation,
-                    isCore: isFirst,
-                    media: [] // 初始化为空的媒体数组
-                };
+                const newRes = { id: 'res_' + Date.now(), lnglat: selectedLocation, isCore: isFirst, media: [] };
                 savedResidences.push(newRes);
                 if(await syncDataToOSS()){
-                    drawResidenceMarker(newRes);
-                    resetSearchState();
-                } else {
-                    savedResidences.pop(); 
-                }
+                    drawResidenceMarker(newRes); resetSearchState();
+                } else { savedResidences.pop(); }
             }
         };
 
@@ -554,20 +527,76 @@
         const resModal = document.getElementById('residence-modal-overlay');
         
         function openResidenceModal(resId) {
+            if (currentPlaceId) closeSidebar(); // 如果打卡侧边栏开着，先关掉
+
             currentResId = resId;
             const res = savedResidences.find(r => r.id === resId);
             document.getElementById('res-status-text').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
             document.getElementById('set-core-res-btn').style.display = res.isCore ? "none" : "block";
             
-            // 每次打开清空文件上传框，并加载当前已有媒体
             document.getElementById('res-media-upload').value = '';
             currentResExistingMedia = [...(res.media || [])];
             renderResExistingMediaPreview();
 
             resModal.style.display = 'flex';
+
+            // 核心新增：如果住所有媒体，自动在左侧弹出专门设计的“住所画廊”侧边栏
+            if (res.media && res.media.length > 0) {
+                openSidebarForResidence(res);
+            }
         }
 
-        // 渲染住所媒体预览
+        // 为住所定制的专属侧边栏展示
+        function openSidebarForResidence(res) {
+            currentPlaceId = null; // 标识当前不是常规地点
+            
+            // 改变头部样式
+            document.getElementById('sb-icon').src = `Images/house.png`;
+            document.getElementById('sb-custom-name').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
+            document.getElementById('sb-searched-name').innerText = "住所相册展示";
+            
+            // 隐藏无关的常规地点控件
+            document.getElementById('sb-setting-btn').style.display = 'none';
+            document.getElementById('settings-panel').style.display = 'none';
+            document.getElementById('sb-stats').style.display = 'none';
+            document.getElementById('sb-footer').style.display = 'none';
+            
+            const listDiv = document.getElementById('checkin-list');
+            listDiv.innerHTML = '';
+            
+            // 构造一张大卡片存放所有媒体
+            const card = document.createElement('div');
+            card.className = 'checkin-card';
+            
+            let mediaHtml = res.media.map((m, mIndex) => {
+                if(m.type === 'video') return `<video src="${m.data}" class="clickable-media res-media-item" data-index="${mIndex}"></video>`;
+                return `<img src="${m.data}" class="clickable-media res-media-item" data-index="${mIndex}">`;
+            }).join('');
+
+            card.innerHTML = `
+                <div class="checkin-header">
+                    <span>🏠 住所图库</span>
+                </div>
+                <div class="checkin-desc">这里展示了该住所保存的所有图片与视频。<br>您可以在右侧的管理窗口中增删媒体。</div>
+                <div class="checkin-media-row">${mediaHtml}</div>
+            `;
+            listDiv.appendChild(card);
+
+            // 绑定全屏查看
+            document.querySelectorAll('.res-media-item').forEach(el => {
+                el.onclick = function() {
+                    const idx = parseInt(this.getAttribute('data-index'));
+                    openMediaViewer(res.media, idx);
+                };
+            });
+
+            if (!sidebar.classList.contains('open')) {
+                sidebar.classList.add('open');
+                searchBox.style.opacity = '0'; 
+                filterBar.style.transform = 'translate(-50%, 150px)'; 
+            }
+        }
+
         function renderResExistingMediaPreview() {
             const container = document.getElementById('res-existing-media');
             container.innerHTML = '';
@@ -578,13 +607,8 @@
                 wrapper.innerHTML = `${mediaEl}<div class="remove-existing-media" data-index="${index}">×</div>`;
                 container.appendChild(wrapper);
                 
-                // 绑定点击放大事件
                 const el = wrapper.querySelector('img, video');
-                if(el) {
-                    el.onclick = function() {
-                        openMediaViewer(currentResExistingMedia, index);
-                    };
-                }
+                if(el) { el.onclick = function() { openMediaViewer(currentResExistingMedia, index); }; }
             });
             document.querySelectorAll('#res-existing-media .remove-existing-media').forEach(btn => {
                 btn.onclick = function() {
@@ -595,7 +619,11 @@
             });
         }
 
-        document.getElementById('cancel-res-btn').onclick = () => { resModal.style.display = 'none'; };
+        // 关闭住所管理时，连带关闭可能展开的左侧侧边栏
+        document.getElementById('cancel-res-btn').onclick = () => { 
+            resModal.style.display = 'none'; 
+            closeSidebar(); 
+        };
 
         document.getElementById('set-core-res-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
@@ -604,38 +632,30 @@
             
             if(await syncDataToOSS()){
                 resModal.style.display = 'none';
+                closeSidebar();
                 alert("设置核心住所成功！下次打开将以此为中心。");
-            } else {
-                savedResidences = JSON.parse(oldState); 
-            }
+            } else { savedResidences = JSON.parse(oldState); }
         };
 
-        // 住所媒体保存逻辑
         document.getElementById('save-res-media-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const files = document.getElementById('res-media-upload').files;
             const btn = document.getElementById('save-res-media-btn');
             
-            btn.innerText = "正在上传云端...";
-            btn.disabled = true;
+            btn.innerText = "正在上传云端..."; btn.disabled = true;
 
             let newMediaArr = [];
             if (files.length > 0) {
                 for(let i=0; i<files.length; i++) {
-                    let file = files[i];
-                    let fileExt = file.name.split('.').pop();
+                    let file = files[i]; let fileExt = file.name.split('.').pop();
                     let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-                    
                     try {
                         let result = await client.put(safeName, file);
                         let mediaType = file.type.startsWith('video') ? 'video' : 'image';
                         newMediaArr.push({ type: mediaType, data: result.url });
                     } catch(e) {
                         alert(`文件 ${file.name} 上传失败！`);
-                        console.error(e);
-                        btn.innerText = "保存媒体修改";
-                        btn.disabled = false;
-                        return;
+                        btn.innerText = "保存媒体修改"; btn.disabled = false; return;
                     }
                 }
             }
@@ -644,24 +664,28 @@
             const rIndex = savedResidences.findIndex(r => r.id === currentResId);
             const oldMedia = savedResidences[rIndex].media || [];
             
-            // 对比并物理删除 OSS 中的无用媒体
             const finalMediaUrls = finalMediaArr.map(m => m.data);
             const mediaToDelete = oldMedia.filter(m => !finalMediaUrls.includes(m.data));
-            for (let m of mediaToDelete) {
-                deleteMediaFromOSS(m.data); 
-            }
+            for (let m of mediaToDelete) deleteMediaFromOSS(m.data); 
 
             const oldResData = JSON.stringify(savedResidences);
             savedResidences[rIndex].media = finalMediaArr;
 
             if (await syncDataToOSS()) {
-                btn.innerText = "保存媒体修改";
-                btn.disabled = false;
-                resModal.style.display = 'none';
+                btn.innerText = "保存媒体修改"; btn.disabled = false;
+                // 如果还有媒体就刷新左侧画廊，没有了就关掉左侧
+                if (savedResidences[rIndex].media.length > 0) {
+                    openSidebarForResidence(savedResidences[rIndex]);
+                } else {
+                    closeSidebar();
+                }
+                // 清空输入框以备下次上传
+                document.getElementById('res-media-upload').value = '';
+                currentResExistingMedia = [...savedResidences[rIndex].media];
+                renderResExistingMediaPreview();
             } else {
                 savedResidences = JSON.parse(oldResData);
-                btn.innerText = "保存媒体修改";
-                btn.disabled = false;
+                btn.innerText = "保存媒体修改"; btn.disabled = false;
             }
         };
 
@@ -672,11 +696,8 @@
                 const wasCore = savedResidences[resIndex].isCore;
                 const deletedRes = savedResidences[resIndex];
                 
-                // 物理删除该住所下绑定的所有云端媒体
                 if (deletedRes.media && deletedRes.media.length > 0) {
-                    for (let m of deletedRes.media) {
-                        deleteMediaFromOSS(m.data);
-                    }
+                    for (let m of deletedRes.media) deleteMediaFromOSS(m.data);
                 }
                 
                 savedResidences.splice(resIndex, 1);
@@ -686,9 +707,8 @@
                     map.remove(residenceMarkersMap[currentResId]);
                     delete residenceMarkersMap[currentResId];
                     resModal.style.display = 'none';
-                } else {
-                    savedResidences.splice(resIndex, 0, deletedRes); 
-                }
+                    closeSidebar();
+                } else { savedResidences.splice(resIndex, 0, deletedRes); }
             });
         };
 
@@ -798,6 +818,13 @@
         // 侧边栏及彻底物理删除地点逻辑
         // ============================
         function openSidebar(id) {
+            document.getElementById('residence-modal-overlay').style.display = 'none'; // 切换到打卡点时，强制关掉住所管理窗口
+
+            // 恢复被住所画廊隐藏的控件显示
+            document.getElementById('sb-setting-btn').style.display = 'block';
+            document.getElementById('sb-stats').style.display = 'block';
+            document.getElementById('sb-footer').style.display = 'flex';
+
             if (currentPlaceId && markersMap[currentPlaceId]) {
                 const oldPlace = savedPlaces.find(p => p.id === currentPlaceId);
                 if (oldPlace) {
@@ -848,6 +875,12 @@
                     markersMap[currentPlaceId].setTop(false);
                 }
             }
+            
+            // 恢复控件状态
+            document.getElementById('sb-setting-btn').style.display = 'block';
+            document.getElementById('sb-stats').style.display = 'block';
+            document.getElementById('sb-footer').style.display = 'flex';
+
             sidebar.classList.remove('open');
             searchBox.style.opacity = '1';
             filterBar.style.transform = 'translate(-50%, 0)'; 
