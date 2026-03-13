@@ -26,6 +26,8 @@
         .layer-btn { background: none; border: none; padding: 8px 15px; cursor: pointer; font-size: 14px; }
         .layer-btn.active { background: #eee; font-weight: bold; }
         #btnStandard { border-bottom: 1px solid #ccc; }
+        /* 新增：云端配置按钮 */
+        #btnCloudConfig { border-top: 1px solid #ccc; color: #007bff; font-weight: bold; }
 
         /* 底部 Save as 栏 (搜索时出现) */
         #save-bar {
@@ -103,11 +105,12 @@
             background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center;
         }
         .modal-box { background: white; padding: 20px; border-radius: 10px; width: 320px; display: flex; flex-direction: column; gap: 15px; }
-        .modal-box input[type="text"] { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        .modal-box input[type="text"], .modal-box input[type="password"] { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
         .modal-box textarea { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; height: 80px; resize: none; width: 100%; box-sizing: border-box; }
         .modal-btns { display: flex; justify-content: space-between; }
         .modal-btns button { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
         .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
         .btn-cancel { background: #ddd; color: #333; }
         .btn-danger { background: #dc3545; color: white; }
         .close-sidebar-area { position: absolute; right: -40px; top: 20px; width: 30px; height: 30px; background: white; text-align: center; line-height: 30px; cursor: pointer; border-radius: 4px; box-shadow: 2px 0 5px rgba(0,0,0,0.2); }
@@ -152,6 +155,7 @@
     <div id="layer-switch">
         <button id="btnStandard" class="layer-btn active">标准</button>
         <button id="btnSatellite" class="layer-btn">卫星</button>
+        <button id="btnCloudConfig" class="layer-btn">云端配置</button>
     </div>
 
     <div id="filter-bar">
@@ -215,6 +219,29 @@
         </div>
     </div>
 
+    <div id="cloud-config-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h3 style="margin: 0; text-align: center;">配置阿里云 OSS</h3>
+            <p style="font-size: 12px; color: #d9534f; margin: 0 0 10px 0; text-align: center;">秘钥仅保存在您当前设备的浏览器中，不会上传，公开代码也绝对安全。</p>
+            <div>
+                <label style="font-size: 12px; color: #666;">AccessKey ID</label>
+                <input type="text" id="cfg-ak" placeholder="输入 AccessKey ID" style="margin-top: 5px;">
+            </div>
+            <div>
+                <label style="font-size: 12px; color: #666;">AccessKey Secret</label>
+                <input type="password" id="cfg-sk" placeholder="输入 AccessKey Secret" style="margin-top: 5px;">
+            </div>
+            <div>
+                <label style="font-size: 12px; color: #666;">Bucket 名称</label>
+                <input type="text" id="cfg-bucket" placeholder="例如: life-map" style="margin-top: 5px;">
+            </div>
+            <div class="modal-btns" style="margin-top: 10px;">
+                <button id="cancel-cfg-btn" class="btn-cancel">取消</button>
+                <button id="save-cfg-btn" class="btn-success">保存并连接</button>
+            </div>
+        </div>
+    </div>
+
     <div id="name-modal-overlay" class="modal-overlay">
         <div class="modal-box">
             <h3 style="margin: 0; text-align: center;">保存地点</h3>
@@ -272,14 +299,62 @@
 
     <script>
         // ============================
-        // 核心配置区：阿里云 OSS 初始化
+        // 核心安全配置区：动态加载秘钥
         // ============================
-        const client = new OSS({
-            region: 'oss-cn-hangzhou', 
-            accessKeyId: 'LTAI5tHxC1dXxL8Gsy8kBEGU',       
-            accessKeySecret: '4MoeObdIp1hnJXAmIIH71mNCFmXTJO', 
-            bucket: 'life-map'               
-        });
+        let client = null;
+
+        function initOSSClient() {
+            const ak = localStorage.getItem('life_map_oss_ak');
+            const sk = localStorage.getItem('life_map_oss_sk');
+            const bucket = localStorage.getItem('life_map_oss_bucket');
+            
+            if (ak && sk && bucket) {
+                client = new OSS({
+                    region: 'oss-cn-hangzhou', 
+                    accessKeyId: ak,       
+                    accessKeySecret: sk, 
+                    bucket: bucket               
+                });
+                return true;
+            }
+            return false;
+        }
+
+        // ============================
+        // 云端配置弹窗逻辑
+        // ============================
+        const cloudModal = document.getElementById('cloud-config-modal');
+        
+        document.getElementById('btnCloudConfig').onclick = () => {
+            document.getElementById('cfg-ak').value = localStorage.getItem('life_map_oss_ak') || '';
+            document.getElementById('cfg-sk').value = localStorage.getItem('life_map_oss_sk') || '';
+            document.getElementById('cfg-bucket').value = localStorage.getItem('life_map_oss_bucket') || '';
+            cloudModal.style.display = 'flex';
+        };
+
+        document.getElementById('cancel-cfg-btn').onclick = () => {
+            cloudModal.style.display = 'none';
+        };
+
+        document.getElementById('save-cfg-btn').onclick = () => {
+            const ak = document.getElementById('cfg-ak').value.trim();
+            const sk = document.getElementById('cfg-sk').value.trim();
+            const bucket = document.getElementById('cfg-bucket').value.trim();
+            
+            if(!ak || !sk || !bucket) {
+                alert("请填写完整信息！"); return;
+            }
+            
+            localStorage.setItem('life_map_oss_ak', ak);
+            localStorage.setItem('life_map_oss_sk', sk);
+            localStorage.setItem('life_map_oss_bucket', bucket);
+            
+            if (initOSSClient()) {
+                alert("秘钥保存成功！正在尝试连接云端拉取数据...");
+                cloudModal.style.display = 'none';
+                loadDataAndRender(); // 重新加载数据
+            }
+        };
 
         // ============================
         // 全局变量声明
@@ -310,21 +385,24 @@
         // 数据云端同步 & 物理删除核心函数
         // ============================
         async function syncDataToOSS() {
+            if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return false; }
             const dataObj = { residences: savedResidences, places: savedPlaces };
             const blob = new Blob([JSON.stringify(dataObj)], { type: 'application/json' });
             try {
                 await client.put('life-map-data.json', blob);
+                return true;
             } catch (e) {
                 console.error("同步云端失败", e);
-                alert("数据同步失败，请检查网络或秘钥配置");
+                alert("数据同步失败，请检查网络或秘钥配置是否正确！");
+                return false;
             }
         }
 
-        // 解析 URL 并物理删除 OSS 中的文件
         async function deleteMediaFromOSS(url) {
+            if(!client) return;
             try {
                 const urlObj = new URL(url);
-                const objectName = decodeURIComponent(urlObj.pathname.substring(1)); // 去掉最前面的 '/'
+                const objectName = decodeURIComponent(urlObj.pathname.substring(1)); 
                 await client.delete(objectName);
                 console.log("物理删除成功:", objectName);
             } catch (e) {
@@ -333,24 +411,37 @@
         }
 
         // ============================
-        // 页面初始化与数据拉取
+        // 核心地图初始化与拉取
         // ============================
-        async function initMapData() {
+        async function loadDataAndRender() {
+            if(!client) return;
             try {
                 const result = await client.get('life-map-data.json');
                 const dataStr = new TextDecoder().decode(result.content);
                 const data = JSON.parse(dataStr);
                 savedResidences = data.residences || [];
                 savedPlaces = data.places || [];
+
+                const coreRes = savedResidences.find(r => r.isCore);
+                if (coreRes) map.setCenter(coreRes.lnglat);
+
+                // 清除旧的 marker
+                for(let key in markersMap) map.remove(markersMap[key]);
+                for(let key in residenceMarkersMap) map.remove(residenceMarkersMap[key]);
+                markersMap = {}; residenceMarkersMap = {};
+
+                savedResidences.forEach(res => drawResidenceMarker(res));
+                savedPlaces.forEach(place => drawPlaceMarker(place));
+                updateFilterUI();
             } catch (e) {
-                console.log("云端尚无数据文件，将以空数据初始化。");
+                console.log("云端尚无数据文件或秘钥错误，将以空数据初始化。");
             }
+        }
 
-            const coreRes = savedResidences.find(r => r.isCore);
-            if (coreRes) initialCenter = coreRes.lnglat;
-
+        function initMapSystem() {
+            // 先无论如何初始化一个空地图，防止白屏
             map = new AMap.Map('map-container', {
-                zoom: 15, center: initialCenter, features: ['bg', 'road', 'building', 'point'] 
+                zoom: 15, center: HUAWEI_CENTER, features: ['bg', 'road', 'building', 'point'] 
             });
 
             let satelliteLayer = new AMap.TileLayer.Satellite({ zIndex: 0 });
@@ -365,9 +456,6 @@
                 satelliteLayer.show(); map.setFeatures(['point']); 
                 this.classList.add('active'); document.getElementById('btnStandard').classList.remove('active');
             };
-
-            savedResidences.forEach(res => drawResidenceMarker(res));
-            savedPlaces.forEach(place => drawPlaceMarker(place));
 
             let autoOptions = { input: "searchInput" };
             let auto = new AMap.AutoComplete(autoOptions);
@@ -387,6 +475,13 @@
                     });
                 }
             });
+
+            // 检查是否有配置，如果有则拉取渲染，没有则弹窗提示
+            if (initOSSClient()) {
+                loadDataAndRender();
+            } else {
+                cloudModal.style.display = 'flex'; // 强制弹出配置页
+            }
         }
 
         const searchInput = document.getElementById('searchInput');
@@ -416,6 +511,7 @@
         // 住所操作逻辑 
         // ============================
         document.getElementById('houseIcon').onclick = async function() {
+            if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
             if (selectedLocation) {
                 const isFirst = savedResidences.length === 0;
                 const newRes = {
@@ -424,9 +520,12 @@
                     isCore: isFirst
                 };
                 savedResidences.push(newRes);
-                await syncDataToOSS(); 
-                drawResidenceMarker(newRes);
-                resetSearchState();
+                if(await syncDataToOSS()){
+                    drawResidenceMarker(newRes);
+                    resetSearchState();
+                } else {
+                    savedResidences.pop(); // 回退
+                }
             }
         };
 
@@ -452,26 +551,36 @@
         document.getElementById('cancel-res-btn').onclick = () => { resModal.style.display = 'none'; };
 
         document.getElementById('set-core-res-btn').onclick = async () => {
+            if(!client) { alert("请先配置云端！"); return; }
+            // 备份旧状态
+            const oldState = JSON.stringify(savedResidences);
             savedResidences.forEach(r => r.isCore = (r.id === currentResId));
-            await syncDataToOSS();
-            resModal.style.display = 'none';
-            alert("设置核心住所成功！下次打开将以此为中心。");
+            
+            if(await syncDataToOSS()){
+                resModal.style.display = 'none';
+                alert("设置核心住所成功！下次打开将以此为中心。");
+            } else {
+                savedResidences = JSON.parse(oldState); // 失败回退
+            }
         };
 
         document.getElementById('delete-res-btn').onclick = () => {
             tripleConfirm("确定要删除该住所吗？", async () => {
+                if(!client) { alert("请先配置云端！"); return; }
                 const resIndex = savedResidences.findIndex(r => r.id === currentResId);
                 const wasCore = savedResidences[resIndex].isCore;
+                const deletedRes = savedResidences[resIndex];
                 
                 savedResidences.splice(resIndex, 1);
-                if (wasCore && savedResidences.length > 0) {
-                    savedResidences[0].isCore = true;
-                }
+                if (wasCore && savedResidences.length > 0) savedResidences[0].isCore = true;
                 
-                await syncDataToOSS();
-                map.remove(residenceMarkersMap[currentResId]);
-                delete residenceMarkersMap[currentResId];
-                resModal.style.display = 'none';
+                if(await syncDataToOSS()){
+                    map.remove(residenceMarkersMap[currentResId]);
+                    delete residenceMarkersMap[currentResId];
+                    resModal.style.display = 'none';
+                } else {
+                    savedResidences.splice(resIndex, 0, deletedRes); // 回退
+                }
             });
         };
 
@@ -514,6 +623,7 @@
         document.querySelectorAll('.save-btn').forEach(btn => {
             if (btn.id === 'houseIcon') return;
             btn.onclick = function() {
+                if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
                 if (selectedLocation) {
                     pendingSaveType = this.getAttribute('data-type');
                     document.getElementById('name-modal-overlay').style.display = 'flex';
@@ -540,14 +650,15 @@
             };
             
             savedPlaces.push(newPlace);
-            await syncDataToOSS(); 
-            drawPlaceMarker(newPlace);
-            
-            currentFilter = null;
-            updateFilterUI();
-            
-            document.getElementById('name-modal-overlay').style.display = 'none';
-            resetSearchState();
+            if(await syncDataToOSS()){
+                drawPlaceMarker(newPlace);
+                currentFilter = null;
+                updateFilterUI();
+                document.getElementById('name-modal-overlay').style.display = 'none';
+                resetSearchState();
+            } else {
+                savedPlaces.pop();
+            }
         };
 
         function drawPlaceMarker(place) {
@@ -641,64 +752,79 @@
         };
 
         document.getElementById('save-edit-name-btn').onclick = async function() {
+            if(!client) { alert("请先配置云端！"); return; }
             const placeIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
             if(placeIndex > -1) {
+                const oldCustom = savedPlaces[placeIndex].customName;
+                const oldSearch = savedPlaces[placeIndex].searchedName;
+                
                 const newCustom = document.getElementById('edit-custom-name').value.trim();
                 const newSearch = document.getElementById('edit-searched-name').value.trim();
                 savedPlaces[placeIndex].customName = newCustom || newSearch;
                 savedPlaces[placeIndex].searchedName = newSearch;
                 
-                await syncDataToOSS();
-                
-                document.getElementById('sb-custom-name').innerText = savedPlaces[placeIndex].customName;
-                document.getElementById('sb-searched-name').innerText = savedPlaces[placeIndex].searchedName;
-                document.getElementById('settings-panel').style.display = 'none';
+                if(await syncDataToOSS()){
+                    document.getElementById('sb-custom-name').innerText = savedPlaces[placeIndex].customName;
+                    document.getElementById('sb-searched-name').innerText = savedPlaces[placeIndex].searchedName;
+                    document.getElementById('settings-panel').style.display = 'none';
+                } else {
+                    savedPlaces[placeIndex].customName = oldCustom;
+                    savedPlaces[placeIndex].searchedName = oldSearch;
+                }
             }
         };
 
         document.querySelectorAll('.category-switch-icons img').forEach(icon => {
             icon.onclick = async function() {
+                if(!client) { alert("请先配置云端！"); return; }
                 const newType = this.getAttribute('data-type');
                 const placeIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
                 if(placeIndex > -1) {
+                    const oldType = savedPlaces[placeIndex].type;
                     savedPlaces[placeIndex].type = newType;
-                    await syncDataToOSS();
                     
-                    document.getElementById('sb-icon').src = `Images/${newType}.png`;
-                    
-                    map.remove(markersMap[currentPlaceId]);
-                    drawPlaceMarker(savedPlaces[placeIndex]);
-                    
-                    markersMap[currentPlaceId].setIcon(new AMap.Icon({
-                        size: new AMap.Size(60, 60), image: `Images/${newType}.png`, imageSize: new AMap.Size(60, 60)
-                    }));
-                    markersMap[currentPlaceId].setOffset(new AMap.Pixel(-30, -30));
-                    markersMap[currentPlaceId].setTop(true);
+                    if(await syncDataToOSS()){
+                        document.getElementById('sb-icon').src = `Images/${newType}.png`;
+                        map.remove(markersMap[currentPlaceId]);
+                        drawPlaceMarker(savedPlaces[placeIndex]);
+                        
+                        markersMap[currentPlaceId].setIcon(new AMap.Icon({
+                            size: new AMap.Size(60, 60), image: `Images/${newType}.png`, imageSize: new AMap.Size(60, 60)
+                        }));
+                        markersMap[currentPlaceId].setOffset(new AMap.Pixel(-30, -30));
+                        markersMap[currentPlaceId].setTop(true);
 
-                    document.getElementById('settings-panel').style.display = 'none';
-                    updateFilterUI(); 
+                        document.getElementById('settings-panel').style.display = 'none';
+                        updateFilterUI(); 
+                    } else {
+                        savedPlaces[placeIndex].type = oldType;
+                    }
                 }
             };
         });
 
         document.getElementById('sb-delete-place').onclick = function() {
             tripleConfirm("确定要彻底删除该地点及所有打卡记录吗？", async () => {
+                if(!client) { alert("请先配置云端！"); return; }
                 const place = savedPlaces.find(p => p.id === currentPlaceId);
+                const oldPlaces = [...savedPlaces];
                 
-                // 彻底物理删除该地点下的所有媒体文件
                 if (place && place.checkins) {
                     for (let ci of place.checkins) {
                         for (let m of ci.media) {
-                            deleteMediaFromOSS(m.data); // 后台异步清理即可，无需 await 阻塞UI
+                            deleteMediaFromOSS(m.data); 
                         }
                     }
                 }
 
                 savedPlaces = savedPlaces.filter(p => p.id !== currentPlaceId);
-                await syncDataToOSS();
-                map.remove(markersMap[currentPlaceId]);
-                delete markersMap[currentPlaceId];
-                closeSidebar();
+                if(await syncDataToOSS()){
+                    map.remove(markersMap[currentPlaceId]);
+                    delete markersMap[currentPlaceId];
+                    closeSidebar();
+                } else {
+                    savedPlaces = oldPlaces;
+                }
             });
         };
 
@@ -764,12 +890,13 @@
 
             document.querySelectorAll('.delete-checkin-btn').forEach(btn => {
                 btn.onclick = function() {
-                    const checkinId = this.getAttribute('data-id');
                     tripleConfirm("确定要删除这条打卡记录吗？", async () => {
+                        if(!client) { alert("请先配置云端！"); return; }
+                        const checkinId = this.getAttribute('data-id');
                         const pIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
                         const checkin = savedPlaces[pIndex].checkins.find(c => c.id === checkinId);
+                        const oldCheckins = [...savedPlaces[pIndex].checkins];
                         
-                        // 彻底物理删除该打卡记录里的所有媒体文件
                         if (checkin && checkin.media) {
                             for (let m of checkin.media) {
                                 deleteMediaFromOSS(m.data);
@@ -777,8 +904,11 @@
                         }
 
                         savedPlaces[pIndex].checkins = savedPlaces[pIndex].checkins.filter(c => c.id !== checkinId);
-                        await syncDataToOSS();
-                        renderCheckins(savedPlaces[pIndex]); 
+                        if(await syncDataToOSS()){
+                            renderCheckins(savedPlaces[pIndex]); 
+                        } else {
+                            savedPlaces[pIndex].checkins = oldCheckins;
+                        }
                     });
                 };
             });
@@ -838,6 +968,7 @@
         const checkinModal = document.getElementById('checkin-modal-overlay');
         
         document.getElementById('add-checkin-btn').onclick = () => {
+            if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
             editingCheckinId = null; currentExistingMedia = [];
             document.getElementById('checkin-modal-title').innerText = '添加打卡';
             document.getElementById('ci-date').value = '';
@@ -850,6 +981,7 @@
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
         document.getElementById('confirm-add-btn').onclick = async () => {
+            if(!client) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
             const desc = document.getElementById('ci-desc').value.trim();
             const files = document.getElementById('ci-media').files;
@@ -864,7 +996,6 @@
 
             let newMediaArr = [];
             
-            // 上传新文件
             if (files.length > 0) {
                 for(let i=0; i<files.length; i++) {
                     let file = files[i];
@@ -887,12 +1018,12 @@
 
             const finalMediaArr = editingCheckinId ? [...currentExistingMedia, ...newMediaArr] : newMediaArr;
             const pIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
+            const oldCheckins = JSON.parse(JSON.stringify(savedPlaces[pIndex].checkins));
 
             if (editingCheckinId) {
                 const cIndex = savedPlaces[pIndex].checkins.findIndex(c => c.id === editingCheckinId);
                 const oldMedia = savedPlaces[pIndex].checkins[cIndex].media;
                 
-                // 找出在编辑时被用户点 "x" 删掉的旧图，并真正从物理硬盘删除它们
                 const finalMediaUrls = finalMediaArr.map(m => m.data);
                 const mediaToDelete = oldMedia.filter(m => !finalMediaUrls.includes(m.data));
                 for (let m of mediaToDelete) {
@@ -907,16 +1038,21 @@
                 savedPlaces[pIndex].checkins.push(newCheckin);
             }
 
-            await syncDataToOSS(); 
-
-            btn.innerText = "保存";
-            btn.disabled = false;
-            checkinModal.style.display = 'none';
-            renderCheckins(savedPlaces[pIndex]);
+            if(await syncDataToOSS()) {
+                btn.innerText = "保存";
+                btn.disabled = false;
+                checkinModal.style.display = 'none';
+                renderCheckins(savedPlaces[pIndex]);
+            } else {
+                // 回退
+                savedPlaces[pIndex].checkins = oldCheckins;
+                btn.innerText = "保存";
+                btn.disabled = false;
+            }
         };
         
-        // 执行启动
-        initMapData();
+        // 启动！
+        initMapSystem();
         updateFilterUI();
     </script>
 </body>
