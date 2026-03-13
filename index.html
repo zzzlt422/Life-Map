@@ -115,9 +115,9 @@
         .btn-danger { background: #dc3545; color: white; }
         .close-sidebar-area { position: absolute; right: -40px; top: 20px; width: 30px; height: 30px; background: white; text-align: center; line-height: 30px; cursor: pointer; border-radius: 4px; box-shadow: 2px 0 5px rgba(0,0,0,0.2); }
         
-        #ci-existing-media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
+        #ci-existing-media, #res-existing-media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
         .preview-wrapper { position: relative; flex-shrink: 0; }
-        .preview-wrapper img, .preview-wrapper video { height: 60px; border-radius: 4px; object-fit: cover; }
+        .preview-wrapper img, .preview-wrapper video { height: 60px; border-radius: 4px; object-fit: cover; cursor: pointer; }
         .remove-existing-media { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; line-height: 16px; text-align: center; cursor: pointer; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 
         /* ========= 全屏媒体查看器样式 ========= */
@@ -261,13 +261,20 @@
     </div>
 
     <div id="residence-modal-overlay" class="modal-overlay">
-        <div class="modal-box" style="width: 260px;">
+        <div class="modal-box" style="width: 320px;">
             <h3 style="margin: 0; text-align: center;">住所管理</h3>
             <div style="text-align: center; font-size: 13px; color: #555;">当前状态: <span id="res-status-text" style="font-weight: bold; color: #007bff;"></span></div>
-            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
+            
+            <div id="res-existing-media" style="margin-top: 10px;"></div>
+            
+            <label style="font-size: 12px; color: #666; margin-bottom: -10px; margin-top: 5px;">添加住所图片/视频</label>
+            <input type="file" id="res-media-upload" multiple accept="image/*,video/*">
+
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                <button id="save-res-media-btn" class="btn-success" style="width: 100%;">保存媒体修改</button>
                 <button id="set-core-res-btn" class="btn-primary" style="width: 100%;">设为核心住所</button>
                 <button id="delete-res-btn" class="btn-danger" style="width: 100%;">删除该住所</button>
-                <button id="cancel-res-btn" class="btn-cancel" style="width: 100%;">取消</button>
+                <button id="cancel-res-btn" class="btn-cancel" style="width: 100%;">取消 / 关闭</button>
             </div>
         </div>
     </div>
@@ -373,6 +380,8 @@
         
         let editingCheckinId = null;
         let currentExistingMedia = []; 
+        let currentResExistingMedia = []; // 住所独立管理的媒体列表
+
         let currentViewerMedia = [];
         let currentViewerIndex = 0;
         let currentFilter = null; 
@@ -419,7 +428,11 @@
                 const result = await client.get('life-map-data.json');
                 const dataStr = new TextDecoder().decode(result.content);
                 const data = JSON.parse(dataStr);
+                
                 savedResidences = data.residences || [];
+                // 兼容住所的 media 字段
+                savedResidences.forEach(r => { if (!r.media) r.media = []; });
+
                 savedPlaces = data.places || [];
 
                 const coreRes = savedResidences.find(r => r.isCore);
@@ -439,7 +452,6 @@
         }
 
         function initMapSystem() {
-            // 先无论如何初始化一个空地图，防止白屏
             map = new AMap.Map('map-container', {
                 zoom: 15, center: HUAWEI_CENTER, features: ['bg', 'road', 'building', 'point'] 
             });
@@ -476,11 +488,10 @@
                 }
             });
 
-            // 检查是否有配置，如果有则拉取渲染，没有则弹窗提示
             if (initOSSClient()) {
                 loadDataAndRender();
             } else {
-                cloudModal.style.display = 'flex'; // 强制弹出配置页
+                cloudModal.style.display = 'flex'; 
             }
         }
 
@@ -508,7 +519,7 @@
         cancelBtn.onclick = resetSearchState;
         
         // ============================
-        // 住所操作逻辑 
+        // 住所操作与媒体管理逻辑
         // ============================
         document.getElementById('houseIcon').onclick = async function() {
             if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
@@ -517,14 +528,15 @@
                 const newRes = {
                     id: 'res_' + Date.now(),
                     lnglat: selectedLocation,
-                    isCore: isFirst
+                    isCore: isFirst,
+                    media: [] // 初始化为空的媒体数组
                 };
                 savedResidences.push(newRes);
                 if(await syncDataToOSS()){
                     drawResidenceMarker(newRes);
                     resetSearchState();
                 } else {
-                    savedResidences.pop(); // 回退
+                    savedResidences.pop(); 
                 }
             }
         };
@@ -540,19 +552,53 @@
         }
 
         const resModal = document.getElementById('residence-modal-overlay');
+        
         function openResidenceModal(resId) {
             currentResId = resId;
             const res = savedResidences.find(r => r.id === resId);
             document.getElementById('res-status-text').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
             document.getElementById('set-core-res-btn').style.display = res.isCore ? "none" : "block";
+            
+            // 每次打开清空文件上传框，并加载当前已有媒体
+            document.getElementById('res-media-upload').value = '';
+            currentResExistingMedia = [...(res.media || [])];
+            renderResExistingMediaPreview();
+
             resModal.style.display = 'flex';
+        }
+
+        // 渲染住所媒体预览
+        function renderResExistingMediaPreview() {
+            const container = document.getElementById('res-existing-media');
+            container.innerHTML = '';
+            currentResExistingMedia.forEach((m, index) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'preview-wrapper';
+                let mediaEl = m.type === 'video' ? `<video src="${m.data}"></video>` : `<img src="${m.data}">`;
+                wrapper.innerHTML = `${mediaEl}<div class="remove-existing-media" data-index="${index}">×</div>`;
+                container.appendChild(wrapper);
+                
+                // 绑定点击放大事件
+                const el = wrapper.querySelector('img, video');
+                if(el) {
+                    el.onclick = function() {
+                        openMediaViewer(currentResExistingMedia, index);
+                    };
+                }
+            });
+            document.querySelectorAll('#res-existing-media .remove-existing-media').forEach(btn => {
+                btn.onclick = function() {
+                    const idx = parseInt(this.getAttribute('data-index'));
+                    currentResExistingMedia.splice(idx, 1); 
+                    renderResExistingMediaPreview(); 
+                };
+            });
         }
 
         document.getElementById('cancel-res-btn').onclick = () => { resModal.style.display = 'none'; };
 
         document.getElementById('set-core-res-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
-            // 备份旧状态
             const oldState = JSON.stringify(savedResidences);
             savedResidences.forEach(r => r.isCore = (r.id === currentResId));
             
@@ -560,16 +606,78 @@
                 resModal.style.display = 'none';
                 alert("设置核心住所成功！下次打开将以此为中心。");
             } else {
-                savedResidences = JSON.parse(oldState); // 失败回退
+                savedResidences = JSON.parse(oldState); 
+            }
+        };
+
+        // 住所媒体保存逻辑
+        document.getElementById('save-res-media-btn').onclick = async () => {
+            if(!client) { alert("请先配置云端！"); return; }
+            const files = document.getElementById('res-media-upload').files;
+            const btn = document.getElementById('save-res-media-btn');
+            
+            btn.innerText = "正在上传云端...";
+            btn.disabled = true;
+
+            let newMediaArr = [];
+            if (files.length > 0) {
+                for(let i=0; i<files.length; i++) {
+                    let file = files[i];
+                    let fileExt = file.name.split('.').pop();
+                    let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+                    
+                    try {
+                        let result = await client.put(safeName, file);
+                        let mediaType = file.type.startsWith('video') ? 'video' : 'image';
+                        newMediaArr.push({ type: mediaType, data: result.url });
+                    } catch(e) {
+                        alert(`文件 ${file.name} 上传失败！`);
+                        console.error(e);
+                        btn.innerText = "保存媒体修改";
+                        btn.disabled = false;
+                        return;
+                    }
+                }
+            }
+
+            const finalMediaArr = [...currentResExistingMedia, ...newMediaArr];
+            const rIndex = savedResidences.findIndex(r => r.id === currentResId);
+            const oldMedia = savedResidences[rIndex].media || [];
+            
+            // 对比并物理删除 OSS 中的无用媒体
+            const finalMediaUrls = finalMediaArr.map(m => m.data);
+            const mediaToDelete = oldMedia.filter(m => !finalMediaUrls.includes(m.data));
+            for (let m of mediaToDelete) {
+                deleteMediaFromOSS(m.data); 
+            }
+
+            const oldResData = JSON.stringify(savedResidences);
+            savedResidences[rIndex].media = finalMediaArr;
+
+            if (await syncDataToOSS()) {
+                btn.innerText = "保存媒体修改";
+                btn.disabled = false;
+                resModal.style.display = 'none';
+            } else {
+                savedResidences = JSON.parse(oldResData);
+                btn.innerText = "保存媒体修改";
+                btn.disabled = false;
             }
         };
 
         document.getElementById('delete-res-btn').onclick = () => {
-            tripleConfirm("确定要删除该住所吗？", async () => {
+            tripleConfirm("确定要删除该住所及其中所有媒体吗？", async () => {
                 if(!client) { alert("请先配置云端！"); return; }
                 const resIndex = savedResidences.findIndex(r => r.id === currentResId);
                 const wasCore = savedResidences[resIndex].isCore;
                 const deletedRes = savedResidences[resIndex];
+                
+                // 物理删除该住所下绑定的所有云端媒体
+                if (deletedRes.media && deletedRes.media.length > 0) {
+                    for (let m of deletedRes.media) {
+                        deleteMediaFromOSS(m.data);
+                    }
+                }
                 
                 savedResidences.splice(resIndex, 1);
                 if (wasCore && savedResidences.length > 0) savedResidences[0].isCore = true;
@@ -579,7 +687,7 @@
                     delete residenceMarkersMap[currentResId];
                     resModal.style.display = 'none';
                 } else {
-                    savedResidences.splice(resIndex, 0, deletedRes); // 回退
+                    savedResidences.splice(resIndex, 0, deletedRes); 
                 }
             });
         };
@@ -956,7 +1064,7 @@
                 wrapper.innerHTML = `${mediaEl}<div class="remove-existing-media" data-index="${index}">×</div>`;
                 container.appendChild(wrapper);
             });
-            document.querySelectorAll('.remove-existing-media').forEach(btn => {
+            document.querySelectorAll('#ci-existing-media .remove-existing-media').forEach(btn => {
                 btn.onclick = function() {
                     const idx = parseInt(this.getAttribute('data-index'));
                     currentExistingMedia.splice(idx, 1); 
@@ -1044,7 +1152,6 @@
                 checkinModal.style.display = 'none';
                 renderCheckins(savedPlaces[pIndex]);
             } else {
-                // 回退
                 savedPlaces[pIndex].checkins = oldCheckins;
                 btn.innerText = "保存";
                 btn.disabled = false;
