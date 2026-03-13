@@ -89,6 +89,14 @@
         .checkin-media-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
         .checkin-media-row img, .checkin-media-row video { height: 100px; border-radius: 4px; object-fit: cover; flex-shrink: 0; cursor: pointer; }
 
+        /* 住所专用的网格图库样式 */
+        .res-gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+        .res-media-wrapper { position: relative; width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.15); background: #eee; }
+        .res-media-wrapper img, .res-media-wrapper video { width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: transform 0.2s; }
+        .res-media-wrapper img:hover, .res-media-wrapper video:hover { transform: scale(1.05); }
+        .delete-media-btn { position: absolute; top: 5px; right: 5px; background: rgba(220, 53, 69, 0.9); color: white; width: 22px; height: 22px; border-radius: 50%; text-align: center; line-height: 20px; font-weight: bold; cursor: pointer; font-size: 14px; z-index: 10; border: 1px solid white; box-sizing: border-box; }
+        .delete-media-btn:hover { background: red; }
+
         #sb-footer {
             position: absolute; bottom: 0; left: 0; width: 100%; padding: 15px 0; background: white;
             border-top: 1px solid #ddd; display: flex; justify-content: center; box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
@@ -98,7 +106,7 @@
             border-radius: 50%; font-size: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
 
-        /* ========= 弹窗通用样式 ========= */
+        /* ========= 弹窗及进度条通用样式 ========= */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center;
@@ -114,10 +122,14 @@
         .btn-danger { background: #dc3545; color: white; }
         .close-sidebar-area { position: absolute; right: -40px; top: 20px; width: 30px; height: 30px; background: white; text-align: center; line-height: 30px; cursor: pointer; border-radius: 4px; box-shadow: 2px 0 5px rgba(0,0,0,0.2); }
         
-        #ci-existing-media, #res-existing-media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
+        #ci-existing-media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
         .preview-wrapper { position: relative; flex-shrink: 0; }
         .preview-wrapper img, .preview-wrapper video { height: 60px; border-radius: 4px; object-fit: cover; cursor: pointer; }
         .remove-existing-media { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; line-height: 16px; text-align: center; cursor: pointer; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+        /* 进度条样式 */
+        .progress-container { width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; display: none; margin-top: 5px; }
+        .progress-bar { height: 100%; background-color: #28a745; width: 0%; transition: width 0.2s linear; }
 
         /* ========= 全屏媒体查看器样式 ========= */
         #media-viewer-overlay {
@@ -190,25 +202,33 @@
             <img id="sb-setting-btn" src="Images/setting.png" alt="设置">
             
             <div id="settings-panel">
-                <div class="settings-row">
-                    <div style="font-size: 13px; font-weight: bold; color: #555;">修改名称信息:</div>
-                    <input type="text" id="edit-custom-name" class="edit-input" placeholder="自定义店名 (如: Float Vintage)">
-                    <input type="text" id="edit-searched-name" class="edit-input" placeholder="地图地址">
-                    <button id="save-edit-name-btn" class="save-edit-btn">保存名称修改</button>
-                </div>
-                
-                <div class="settings-row">
-                    <div style="font-size: 13px; font-weight: bold; color: #555;">切换分类:</div>
-                    <div class="category-switch-icons">
-                        <img src="Images/tree.png" data-type="tree">
-                        <img src="Images/food.png" data-type="food">
-                        <img src="Images/cafe.png" data-type="cafe">
-                        <img src="Images/fancy_food.png" data-type="fancy_food">
-                        <img src="Images/clothes.png" data-type="clothes">
-                        <img src="Images/book.png" data-type="book">
+                <div id="place-settings-content">
+                    <div class="settings-row">
+                        <div style="font-size: 13px; font-weight: bold; color: #555;">修改名称信息:</div>
+                        <input type="text" id="edit-custom-name" class="edit-input" placeholder="自定义店名 (如: Float Vintage)">
+                        <input type="text" id="edit-searched-name" class="edit-input" placeholder="地图地址">
+                        <button id="save-edit-name-btn" class="save-edit-btn">保存名称修改</button>
                     </div>
+                    <div class="settings-row">
+                        <div style="font-size: 13px; font-weight: bold; color: #555;">切换分类:</div>
+                        <div class="category-switch-icons">
+                            <img src="Images/tree.png" data-type="tree">
+                            <img src="Images/food.png" data-type="food">
+                            <img src="Images/cafe.png" data-type="cafe">
+                            <img src="Images/fancy_food.png" data-type="fancy_food">
+                            <img src="Images/clothes.png" data-type="clothes">
+                            <img src="Images/book.png" data-type="book">
+                        </div>
+                    </div>
+                    <div class="settings-row" id="sb-delete-place">彻底删除该地点</div>
                 </div>
-                <div class="settings-row" id="sb-delete-place">Delete</div>
+
+                <div id="res-settings-content" style="display: none;">
+                    <div class="settings-row">
+                        <button id="set-core-res-btn" class="btn-primary" style="width: 100%;">设为核心住所</button>
+                    </div>
+                    <div class="settings-row" id="sb-delete-res" style="color: red; text-align: center; cursor: pointer; font-weight: bold;">彻底删除该住所</div>
+                </div>
             </div>
         </div>
         <div id="sb-stats">Visit Time: <span id="visit-count">0</span></div>
@@ -259,21 +279,20 @@
         </div>
     </div>
 
-    <div id="residence-modal-overlay" class="modal-overlay">
-        <div class="modal-box" style="width: 320px;">
-            <h3 style="margin: 0; text-align: center;">住所管理</h3>
-            <div style="text-align: center; font-size: 13px; color: #555;">当前状态: <span id="res-status-text" style="font-weight: bold; color: #007bff;"></span></div>
+    <div id="res-upload-modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <h3 style="margin: 0; text-align: center;">添加住所媒体</h3>
+            <label style="font-size: 12px; color: #666; margin-top: 10px;">选择新图片/视频进行上传</label>
+            <input type="file" id="res-upload-media" multiple accept="image/*,video/*" style="margin-top: 5px;">
             
-            <div id="res-existing-media" style="margin-top: 10px;"></div>
+            <div class="progress-container" id="res-progress-container">
+                <div class="progress-bar" id="res-progress-bar"></div>
+            </div>
+            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="res-progress-text">0%</div>
             
-            <label style="font-size: 12px; color: #666; margin-bottom: -10px; margin-top: 5px;">添加住所图片/视频</label>
-            <input type="file" id="res-media-upload" multiple accept="image/*,video/*">
-
-            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
-                <button id="save-res-media-btn" class="btn-success" style="width: 100%;">保存媒体修改</button>
-                <button id="set-core-res-btn" class="btn-primary" style="width: 100%;">设为核心住所</button>
-                <button id="delete-res-btn" class="btn-danger" style="width: 100%;">删除该住所</button>
-                <button id="cancel-res-btn" class="btn-cancel" style="width: 100%;">取消 / 关闭</button>
+            <div class="modal-btns" style="margin-top: 15px;">
+                <button id="cancel-res-upload-btn" class="btn-cancel">取消</button>
+                <button id="confirm-res-upload-btn" class="btn-primary">保存上传</button>
             </div>
         </div>
     </div>
@@ -289,7 +308,12 @@
             <label style="font-size: 12px; color: #666; margin-bottom: -10px;">添加新图片/视频 (合并保存)</label>
             <input type="file" id="ci-media" multiple accept="image/*,video/*">
             
-            <div class="modal-btns">
+            <div class="progress-container" id="ci-progress-container">
+                <div class="progress-bar" id="ci-progress-bar"></div>
+            </div>
+            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="ci-progress-text">0%</div>
+            
+            <div class="modal-btns" style="margin-top: 10px;">
                 <button id="cancel-add-btn" class="btn-cancel">取消</button>
                 <button id="confirm-add-btn" class="btn-primary">保存</button>
             </div>
@@ -372,7 +396,6 @@
         
         let editingCheckinId = null;
         let currentExistingMedia = []; 
-        let currentResExistingMedia = []; 
 
         let currentViewerMedia = [];
         let currentViewerIndex = 0;
@@ -500,7 +523,7 @@
         cancelBtn.onclick = resetSearchState;
         
         // ============================
-        // 住所操作与媒体展示专用侧边栏逻辑
+        // 住所操作与深度改造的侧边栏呈现逻辑
         // ============================
         document.getElementById('houseIcon').onclick = async function() {
             if(!client) { alert("请先配置云端！"); return; }
@@ -520,75 +543,34 @@
                 icon: new AMap.Icon({ size: new AMap.Size(40, 40), image: 'Images/house.png', imageSize: new AMap.Size(40, 40) }),
                 offset: new AMap.Pixel(-20, -40), map: map
             });
-            marker.on('click', () => openResidenceModal(res.id));
+            marker.on('click', () => {
+                const freshRes = savedResidences.find(r => r.id === res.id);
+                if (freshRes) openSidebarForResidence(freshRes);
+            });
             residenceMarkersMap[res.id] = marker;
-        }
-
-        const resModal = document.getElementById('residence-modal-overlay');
-        
-        function openResidenceModal(resId) {
-            if (currentPlaceId) closeSidebar(); // 如果打卡侧边栏开着，先关掉
-
-            currentResId = resId;
-            const res = savedResidences.find(r => r.id === resId);
-            document.getElementById('res-status-text').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
-            document.getElementById('set-core-res-btn').style.display = res.isCore ? "none" : "block";
-            
-            document.getElementById('res-media-upload').value = '';
-            currentResExistingMedia = [...(res.media || [])];
-            renderResExistingMediaPreview();
-
-            resModal.style.display = 'flex';
-
-            // 核心新增：如果住所有媒体，自动在左侧弹出专门设计的“住所画廊”侧边栏
-            if (res.media && res.media.length > 0) {
-                openSidebarForResidence(res);
-            }
         }
 
         // 为住所定制的专属侧边栏展示
         function openSidebarForResidence(res) {
-            currentPlaceId = null; // 标识当前不是常规地点
+            currentPlaceId = null; 
+            currentResId = res.id;
             
-            // 改变头部样式
             document.getElementById('sb-icon').src = `Images/house.png`;
             document.getElementById('sb-custom-name').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
             document.getElementById('sb-searched-name').innerText = "住所相册展示";
             
-            // 隐藏无关的常规地点控件
-            document.getElementById('sb-setting-btn').style.display = 'none';
-            document.getElementById('settings-panel').style.display = 'none';
+            // 切换设置面板显示内容
+            document.getElementById('place-settings-content').style.display = 'none';
+            document.getElementById('res-settings-content').style.display = 'block';
+            document.getElementById('set-core-res-btn').style.display = res.isCore ? "none" : "block";
+            
+            // 恢复/展示相关按钮
+            document.getElementById('sb-setting-btn').style.display = 'block';
             document.getElementById('sb-stats').style.display = 'none';
-            document.getElementById('sb-footer').style.display = 'none';
-            
-            const listDiv = document.getElementById('checkin-list');
-            listDiv.innerHTML = '';
-            
-            // 构造一张大卡片存放所有媒体
-            const card = document.createElement('div');
-            card.className = 'checkin-card';
-            
-            let mediaHtml = res.media.map((m, mIndex) => {
-                if(m.type === 'video') return `<video src="${m.data}" class="clickable-media res-media-item" data-index="${mIndex}"></video>`;
-                return `<img src="${m.data}" class="clickable-media res-media-item" data-index="${mIndex}">`;
-            }).join('');
+            document.getElementById('sb-footer').style.display = 'flex';
+            document.getElementById('settings-panel').style.display = 'none';
 
-            card.innerHTML = `
-                <div class="checkin-header">
-                    <span>🏠 住所图库</span>
-                </div>
-                <div class="checkin-desc">这里展示了该住所保存的所有图片与视频。<br>您可以在右侧的管理窗口中增删媒体。</div>
-                <div class="checkin-media-row">${mediaHtml}</div>
-            `;
-            listDiv.appendChild(card);
-
-            // 绑定全屏查看
-            document.querySelectorAll('.res-media-item').forEach(el => {
-                el.onclick = function() {
-                    const idx = parseInt(this.getAttribute('data-index'));
-                    openMediaViewer(res.media, idx);
-                };
-            });
+            renderResidenceGallery(res);
 
             if (!sidebar.classList.contains('open')) {
                 sidebar.classList.add('open');
@@ -597,100 +579,81 @@
             }
         }
 
-        function renderResExistingMediaPreview() {
-            const container = document.getElementById('res-existing-media');
-            container.innerHTML = '';
-            currentResExistingMedia.forEach((m, index) => {
+        function renderResidenceGallery(res) {
+            const listDiv = document.getElementById('checkin-list');
+            listDiv.innerHTML = '';
+
+            if (!res.media || res.media.length === 0) {
+                listDiv.innerHTML = '<div style="padding: 30px 20px; text-align: center; color: #888; font-size: 14px;">暂无媒体，点击下方 + 号添加</div>';
+                return;
+            }
+
+            const gallery = document.createElement('div');
+            gallery.className = 'res-gallery';
+
+            res.media.forEach((m, mIndex) => {
                 const wrapper = document.createElement('div');
-                wrapper.className = 'preview-wrapper';
-                let mediaEl = m.type === 'video' ? `<video src="${m.data}"></video>` : `<img src="${m.data}">`;
-                wrapper.innerHTML = `${mediaEl}<div class="remove-existing-media" data-index="${index}">×</div>`;
-                container.appendChild(wrapper);
+                wrapper.className = 'res-media-wrapper';
                 
-                const el = wrapper.querySelector('img, video');
-                if(el) { el.onclick = function() { openMediaViewer(currentResExistingMedia, index); }; }
+                let mediaEl = m.type === 'video' ? 
+                    `<video src="${m.data}" class="clickable-res-media" data-index="${mIndex}"></video>` : 
+                    `<img src="${m.data}" class="clickable-res-media" data-index="${mIndex}">`;
+
+                wrapper.innerHTML = `
+                    ${mediaEl}
+                    <div class="delete-media-btn" data-index="${mIndex}">×</div>
+                `;
+                gallery.appendChild(wrapper);
             });
-            document.querySelectorAll('#res-existing-media .remove-existing-media').forEach(btn => {
-                btn.onclick = function() {
-                    const idx = parseInt(this.getAttribute('data-index'));
-                    currentResExistingMedia.splice(idx, 1); 
-                    renderResExistingMediaPreview(); 
+
+            listDiv.appendChild(gallery);
+
+            document.querySelectorAll('.clickable-res-media').forEach(el => {
+                el.onclick = function() {
+                    openMediaViewer(res.media, parseInt(this.getAttribute('data-index')));
+                };
+            });
+
+            document.querySelectorAll('.delete-media-btn').forEach(btn => {
+                btn.onclick = async function(e) {
+                    e.stopPropagation(); 
+                    if(confirm("确定要删除这张图片/视频吗？")) {
+                        const idx = parseInt(this.getAttribute('data-index'));
+                        const rIndex = savedResidences.findIndex(r => r.id === currentResId);
+                        
+                        const oldMedia = [...savedResidences[rIndex].media];
+                        const targetMedia = savedResidences[rIndex].media[idx];
+                        
+                        savedResidences[rIndex].media.splice(idx, 1);
+                        
+                        if(await syncDataToOSS()) {
+                            deleteMediaFromOSS(targetMedia.data);
+                            renderResidenceGallery(savedResidences[rIndex]);
+                        } else {
+                            savedResidences[rIndex].media = oldMedia; 
+                            alert("删除失败，请重试");
+                        }
+                    }
                 };
             });
         }
 
-        // 关闭住所管理时，连带关闭可能展开的左侧侧边栏
-        document.getElementById('cancel-res-btn').onclick = () => { 
-            resModal.style.display = 'none'; 
-            closeSidebar(); 
-        };
-
+        // 住所配置项操作
         document.getElementById('set-core-res-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const oldState = JSON.stringify(savedResidences);
             savedResidences.forEach(r => r.isCore = (r.id === currentResId));
             
             if(await syncDataToOSS()){
-                resModal.style.display = 'none';
-                closeSidebar();
+                document.getElementById('sb-custom-name').innerText = "🌟 核心住所";
+                document.getElementById('set-core-res-btn').style.display = "none";
+                document.getElementById('settings-panel').style.display = 'none';
                 alert("设置核心住所成功！下次打开将以此为中心。");
             } else { savedResidences = JSON.parse(oldState); }
         };
 
-        document.getElementById('save-res-media-btn').onclick = async () => {
-            if(!client) { alert("请先配置云端！"); return; }
-            const files = document.getElementById('res-media-upload').files;
-            const btn = document.getElementById('save-res-media-btn');
-            
-            btn.innerText = "正在上传云端..."; btn.disabled = true;
-
-            let newMediaArr = [];
-            if (files.length > 0) {
-                for(let i=0; i<files.length; i++) {
-                    let file = files[i]; let fileExt = file.name.split('.').pop();
-                    let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-                    try {
-                        let result = await client.put(safeName, file);
-                        let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                        newMediaArr.push({ type: mediaType, data: result.url });
-                    } catch(e) {
-                        alert(`文件 ${file.name} 上传失败！`);
-                        btn.innerText = "保存媒体修改"; btn.disabled = false; return;
-                    }
-                }
-            }
-
-            const finalMediaArr = [...currentResExistingMedia, ...newMediaArr];
-            const rIndex = savedResidences.findIndex(r => r.id === currentResId);
-            const oldMedia = savedResidences[rIndex].media || [];
-            
-            const finalMediaUrls = finalMediaArr.map(m => m.data);
-            const mediaToDelete = oldMedia.filter(m => !finalMediaUrls.includes(m.data));
-            for (let m of mediaToDelete) deleteMediaFromOSS(m.data); 
-
-            const oldResData = JSON.stringify(savedResidences);
-            savedResidences[rIndex].media = finalMediaArr;
-
-            if (await syncDataToOSS()) {
-                btn.innerText = "保存媒体修改"; btn.disabled = false;
-                // 如果还有媒体就刷新左侧画廊，没有了就关掉左侧
-                if (savedResidences[rIndex].media.length > 0) {
-                    openSidebarForResidence(savedResidences[rIndex]);
-                } else {
-                    closeSidebar();
-                }
-                // 清空输入框以备下次上传
-                document.getElementById('res-media-upload').value = '';
-                currentResExistingMedia = [...savedResidences[rIndex].media];
-                renderResExistingMediaPreview();
-            } else {
-                savedResidences = JSON.parse(oldResData);
-                btn.innerText = "保存媒体修改"; btn.disabled = false;
-            }
-        };
-
-        document.getElementById('delete-res-btn').onclick = () => {
-            tripleConfirm("确定要删除该住所及其中所有媒体吗？", async () => {
+        document.getElementById('sb-delete-res').onclick = () => {
+            tripleConfirm("确定要彻底删除该住所及其中所有媒体吗？", async () => {
                 if(!client) { alert("请先配置云端！"); return; }
                 const resIndex = savedResidences.findIndex(r => r.id === currentResId);
                 const wasCore = savedResidences[resIndex].isCore;
@@ -706,10 +669,74 @@
                 if(await syncDataToOSS()){
                     map.remove(residenceMarkersMap[currentResId]);
                     delete residenceMarkersMap[currentResId];
-                    resModal.style.display = 'none';
+                    document.getElementById('settings-panel').style.display = 'none';
                     closeSidebar();
                 } else { savedResidences.splice(resIndex, 0, deletedRes); }
             });
+        };
+
+        // 住所上传带原生的进度条机制
+        document.getElementById('cancel-res-upload-btn').onclick = () => {
+            document.getElementById('res-upload-modal-overlay').style.display = 'none';
+        };
+
+        document.getElementById('confirm-res-upload-btn').onclick = async () => {
+            if(!client) { alert("请先配置云端！"); return; }
+            const files = document.getElementById('res-upload-media').files;
+            if (files.length === 0) { alert("请选择要上传的文件！"); return; }
+
+            const btn = document.getElementById('confirm-res-upload-btn');
+            btn.innerText = "正在上传云端..."; btn.disabled = true;
+
+            const progContainer = document.getElementById('res-progress-container');
+            const progBar = document.getElementById('res-progress-bar');
+            const progText = document.getElementById('res-progress-text');
+            progContainer.style.display = 'block';
+            progText.style.display = 'block';
+            progBar.style.width = '0%';
+
+            let newMediaArr = [];
+            const bucket = localStorage.getItem('life_map_oss_bucket');
+            const region = 'oss-cn-hangzhou';
+            
+            for(let i=0; i<files.length; i++) {
+                let file = files[i];
+                let fileExt = file.name.split('.').pop();
+                let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+                
+                try {
+                    let result = await client.multipartUpload(safeName, file, {
+                        progress: function (p) {
+                            let overallP = ((i + p) / files.length) * 100;
+                            let percent = overallP.toFixed(1) + '%';
+                            progBar.style.width = percent;
+                            progText.innerText = `正在上传第 ${i+1}/${files.length} 个文件: ${percent}`;
+                        }
+                    });
+                    
+                    let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
+                    let mediaType = file.type.startsWith('video') ? 'video' : 'image';
+                    newMediaArr.push({ type: mediaType, data: finalUrl });
+                } catch(e) {
+                    alert(`文件 ${file.name} 上传失败！`);
+                    console.error(e);
+                    break; 
+                }
+            }
+
+            const rIndex = savedResidences.findIndex(r => r.id === currentResId);
+            const oldMedia = [...savedResidences[rIndex].media];
+            
+            savedResidences[rIndex].media = [...savedResidences[rIndex].media, ...newMediaArr];
+
+            if (await syncDataToOSS()) {
+                btn.innerText = "保存上传"; btn.disabled = false;
+                document.getElementById('res-upload-modal-overlay').style.display = 'none';
+                renderResidenceGallery(savedResidences[rIndex]);
+            } else {
+                savedResidences[rIndex].media = oldMedia;
+                btn.innerText = "保存上传"; btn.disabled = false;
+            }
         };
 
         // ============================
@@ -746,7 +773,7 @@
         });
 
         // ============================
-        // 搜索保存地点逻辑
+        // 搜索保存常规地点逻辑
         // ============================
         document.querySelectorAll('.save-btn').forEach(btn => {
             if (btn.id === 'houseIcon') return;
@@ -815,12 +842,13 @@
         }
 
         // ============================
-        // 侧边栏及彻底物理删除地点逻辑
+        // 常规地点侧边栏及物理删除逻辑
         // ============================
         function openSidebar(id) {
-            document.getElementById('residence-modal-overlay').style.display = 'none'; // 切换到打卡点时，强制关掉住所管理窗口
+            currentResId = null;
 
-            // 恢复被住所画廊隐藏的控件显示
+            document.getElementById('place-settings-content').style.display = 'block';
+            document.getElementById('res-settings-content').style.display = 'none';
             document.getElementById('sb-setting-btn').style.display = 'block';
             document.getElementById('sb-stats').style.display = 'block';
             document.getElementById('sb-footer').style.display = 'flex';
@@ -875,16 +903,12 @@
                     markersMap[currentPlaceId].setTop(false);
                 }
             }
-            
-            // 恢复控件状态
-            document.getElementById('sb-setting-btn').style.display = 'block';
-            document.getElementById('sb-stats').style.display = 'block';
-            document.getElementById('sb-footer').style.display = 'flex';
 
             sidebar.classList.remove('open');
             searchBox.style.opacity = '1';
             filterBar.style.transform = 'translate(-50%, 0)'; 
             currentPlaceId = null;
+            currentResId = null;
         }
 
         document.getElementById('sb-setting-btn').onclick = function() {
@@ -962,6 +986,7 @@
                 if(await syncDataToOSS()){
                     map.remove(markersMap[currentPlaceId]);
                     delete markersMap[currentPlaceId];
+                    document.getElementById('settings-panel').style.display = 'none';
                     closeSidebar();
                 } else {
                     savedPlaces = oldPlaces;
@@ -970,7 +995,7 @@
         };
 
         // ============================
-        // 打卡渲染与彻底物理删除逻辑
+        // 常规打卡渲染与彻底物理删除逻辑
         // ============================
         function renderCheckins(place) {
             document.getElementById('visit-count').innerText = place.checkins.length;
@@ -1022,6 +1047,9 @@
                     document.getElementById('ci-date').value = checkin.date;
                     document.getElementById('ci-desc').value = checkin.desc;
                     document.getElementById('ci-media').value = '';
+                    
+                    document.getElementById('ci-progress-container').style.display = 'none';
+                    document.getElementById('ci-progress-text').style.display = 'none';
 
                     currentExistingMedia = [...checkin.media];
                     renderExistingMediaPreview();
@@ -1085,7 +1113,7 @@
         }
 
         // ============================
-        // 打卡新增与物理更新逻辑
+        // 常规打卡上传与分发添加逻辑
         // ============================
         function renderExistingMediaPreview() {
             const container = document.getElementById('ci-existing-media');
@@ -1108,19 +1136,32 @@
 
         const checkinModal = document.getElementById('checkin-modal-overlay');
         
+        // + 号按钮的分流逻辑：住所 vs 常规打卡
         document.getElementById('add-checkin-btn').onclick = () => {
             if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
-            editingCheckinId = null; currentExistingMedia = [];
-            document.getElementById('checkin-modal-title').innerText = '添加打卡';
-            document.getElementById('ci-date').value = '';
-            document.getElementById('ci-desc').value = '';
-            document.getElementById('ci-media').value = '';
-            document.getElementById('ci-existing-media').innerHTML = ''; 
-            checkinModal.style.display = 'flex';
+            if (currentResId) {
+                // 打开住所上传小窗
+                document.getElementById('res-upload-media').value = '';
+                document.getElementById('res-progress-container').style.display = 'none';
+                document.getElementById('res-progress-text').style.display = 'none';
+                document.getElementById('res-upload-modal-overlay').style.display = 'flex';
+            } else if (currentPlaceId) {
+                // 打开常规打卡小窗
+                editingCheckinId = null; currentExistingMedia = [];
+                document.getElementById('checkin-modal-title').innerText = '添加打卡';
+                document.getElementById('ci-date').value = '';
+                document.getElementById('ci-desc').value = '';
+                document.getElementById('ci-media').value = '';
+                document.getElementById('ci-existing-media').innerHTML = ''; 
+                document.getElementById('ci-progress-container').style.display = 'none';
+                document.getElementById('ci-progress-text').style.display = 'none';
+                checkinModal.style.display = 'flex';
+            }
         };
 
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
+        // 常规打卡的带进度条上传
         document.getElementById('confirm-add-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
@@ -1132,26 +1173,43 @@
             }
 
             const btn = document.getElementById('confirm-add-btn');
-            btn.innerText = "正在上传云端...";
-            btn.disabled = true;
+            btn.innerText = "正在上传云端..."; btn.disabled = true;
+
+            const progContainer = document.getElementById('ci-progress-container');
+            const progBar = document.getElementById('ci-progress-bar');
+            const progText = document.getElementById('ci-progress-text');
 
             let newMediaArr = [];
+            const bucket = localStorage.getItem('life_map_oss_bucket');
+            const region = 'oss-cn-hangzhou';
             
             if (files.length > 0) {
+                progContainer.style.display = 'block';
+                progText.style.display = 'block';
+                progBar.style.width = '0%';
+
                 for(let i=0; i<files.length; i++) {
                     let file = files[i];
                     let fileExt = file.name.split('.').pop();
                     let safeName = `uploads/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                     
                     try {
-                        let result = await client.put(safeName, file);
+                        let result = await client.multipartUpload(safeName, file, {
+                            progress: function (p) {
+                                let overallP = ((i + p) / files.length) * 100;
+                                let percent = overallP.toFixed(1) + '%';
+                                progBar.style.width = percent;
+                                progText.innerText = `正在上传第 ${i+1}/${files.length} 个文件: ${percent}`;
+                            }
+                        });
+                        
+                        let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
                         let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                        newMediaArr.push({ type: mediaType, data: result.url });
+                        newMediaArr.push({ type: mediaType, data: finalUrl });
                     } catch(e) {
                         alert(`文件 ${file.name} 上传失败！`);
                         console.error(e);
-                        btn.innerText = "保存";
-                        btn.disabled = false;
+                        btn.innerText = "保存"; btn.disabled = false;
                         return;
                     }
                 }
@@ -1167,9 +1225,7 @@
                 
                 const finalMediaUrls = finalMediaArr.map(m => m.data);
                 const mediaToDelete = oldMedia.filter(m => !finalMediaUrls.includes(m.data));
-                for (let m of mediaToDelete) {
-                    deleteMediaFromOSS(m.data); 
-                }
+                for (let m of mediaToDelete) deleteMediaFromOSS(m.data); 
 
                 savedPlaces[pIndex].checkins[cIndex].date = dateStr;
                 savedPlaces[pIndex].checkins[cIndex].desc = desc;
@@ -1180,14 +1236,12 @@
             }
 
             if(await syncDataToOSS()) {
-                btn.innerText = "保存";
-                btn.disabled = false;
+                btn.innerText = "保存"; btn.disabled = false;
                 checkinModal.style.display = 'none';
                 renderCheckins(savedPlaces[pIndex]);
             } else {
                 savedPlaces[pIndex].checkins = oldCheckins;
-                btn.innerText = "保存";
-                btn.disabled = false;
+                btn.innerText = "保存"; btn.disabled = false;
             }
         };
         
