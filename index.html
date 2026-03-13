@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life Map</title>
+    <script src="https://gosspublic.alicdn.com/aliyun-oss-sdk-6.18.1.min.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; overflow: hidden; }
+        #map-container { width: 100%; height: 100%; transition: transform 0.3s; }
+        
+        /* 顶部搜索区 */
+        #search-box {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
+            background: white; padding: 5px 10px; border-radius: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            display: flex; align-items: center; width: 300px; transition: opacity 0.3s;
+        }
+        #searchInput { border: none; outline: none; flex-grow: 1; font-size: 16px; padding: 5px; }
+        #cancelBtn { display: none; background: none; border: none; color: red; cursor: pointer; font-size: 14px; }
+
+        /* 右上角地图图层切换 */
+        #layer-switch {
+            position: absolute; top: 20px; right: 20px; z-index: 100; background: white;
+            border: 1px solid #ccc; display: flex; flex-direction: column; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        .layer-btn { background: none; border: none; padding: 8px 15px; cursor: pointer; font-size: 14px; }
+        .layer-btn.active { background: #eee; font-weight: bold; }
+        #btnStandard { border-bottom: 1px solid #ccc; }
+
+        /* 底部 Save as 栏 (搜索时出现) */
+        #save-bar {
+            display: none; position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 100;
+            background: white; padding: 10px 20px; border-radius: 10px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); text-align: center;
+        }
+        #save-bar p { margin: 0 0 10px 0; font-size: 14px; color: #333; }
+        .icon-container { display: flex; gap: 15px; justify-content: center; }
+        .category-icon { width: 40px; height: 40px; object-fit: cover; cursor: pointer; transition: transform 0.2s; }
+        .category-icon:hover { transform: scale(1.1); }
+
+        /* 底部 过滤展示 栏 (常驻) */
+        #filter-bar {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 90;
+            background: rgba(255, 255, 255, 0.9); padding: 10px 20px; border-radius: 12px; box-shadow: 0 -2px 10px rgba(0,0,0,0.15);
+            display: flex; gap: 15px; justify-content: center; align-items: center;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .filter-icon { width: 35px; height: 35px; object-fit: cover; cursor: pointer; transition: all 0.2s ease; }
+
+        /* ========= 侧边栏 ========= */
+        #sidebar {
+            position: absolute; top: 0; left: -350px; width: 350px; height: 100%; background: #f9f9f9;
+            z-index: 200; transition: left 0.3s ease; box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+            display: flex; flex-direction: column;
+        }
+        #sidebar.open { left: 0; }
+        
+        #sb-header { padding: 20px; background: white; border-bottom: 1px solid #ddd; position: relative; display: flex; align-items: center; gap: 15px; }
+        #sb-icon { width: 40px; height: 40px; object-fit: cover; }
+        #sb-title-wrapper { flex-grow: 1; overflow: hidden; }
+        #sb-custom-name { margin: 0; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #333; }
+        #sb-searched-name { margin: 2px 0 0 0; font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #sb-setting-btn { width: 24px; height: 24px; cursor: pointer; }
+        
+        #settings-panel {
+            display: none; position: absolute; top: 60px; right: 20px; background: white; border: 1px solid #ccc;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-radius: 8px; width: 220px; padding: 15px; z-index: 201;
+        }
+        .settings-row { padding: 10px 0; border-bottom: 1px solid #eee; }
+        .settings-row:first-child { padding-top: 0; }
+        .settings-row:last-child { border-bottom: none; padding-bottom: 0; }
+        .category-switch-icons { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
+        .category-switch-icons img { width: 30px; height: 30px; cursor: pointer; border: 1px solid transparent; }
+        .category-switch-icons img:hover { border-color: #888; }
+        #sb-delete-place { color: red; text-align: center; cursor: pointer; font-weight: bold; margin-top: 5px; }
+
+        .edit-input { width: 100%; box-sizing: border-box; padding: 6px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
+        .save-edit-btn { width: 100%; margin-top: 8px; padding: 6px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+
+        #sb-stats { padding: 15px 20px; font-weight: bold; color: #555; }
+        #checkin-list { flex-grow: 1; overflow-y: auto; padding: 0 20px 80px 20px; }
+        
+        .checkin-card { background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .checkin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: bold; color: #333; }
+        .checkin-actions { display: flex; align-items: center; gap: 10px; }
+        .edit-checkin-btn { cursor: pointer; width: 18px; height: 18px; }
+        .delete-checkin-btn { color: red; cursor: pointer; font-size: 18px; line-height: 1; }
+        .checkin-desc { margin-bottom: 10px; color: #666; font-size: 14px; white-space: pre-wrap; }
+        .checkin-media-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
+        .checkin-media-row img, .checkin-media-row video { height: 100px; border-radius: 4px; object-fit: cover; flex-shrink: 0; cursor: pointer; }
+
+        #sb-footer {
+            position: absolute; bottom: 0; left: 0; width: 100%; padding: 15px 0; background: white;
+            border-top: 1px solid #ddd; display: flex; justify-content: center; box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
+        }
+        #add-checkin-btn {
+            background: #007bff; color: white; border: none; width: 50px; height: 50px;
+            border-radius: 50%; font-size: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+
+        /* ========= 弹窗通用样式 ========= */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center;
+        }
+        .modal-box { background: white; padding: 20px; border-radius: 10px; width: 320px; display: flex; flex-direction: column; gap: 15px; }
+        .modal-box input[type="text"] { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        .modal-box textarea { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; height: 80px; resize: none; width: 100%; box-sizing: border-box; }
+        .modal-btns { display: flex; justify-content: space-between; }
+        .modal-btns button { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-cancel { background: #ddd; color: #333; }
+        .btn-danger { background: #dc3545; color: white; }
+        .close-sidebar-area { position: absolute; right: -40px; top: 20px; width: 30px; height: 30px; background: white; text-align: center; line-height: 30px; cursor: pointer; border-radius: 4px; box-shadow: 2px 0 5px rgba(0,0,0,0.2); }
+        
+        #ci-existing-media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
+        .preview-wrapper { position: relative; flex-shrink: 0; }
+        .preview-wrapper img, .preview-wrapper video { height: 60px; border-radius: 4px; object-fit: cover; }
+        .remove-existing-media { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; line-height: 16px; text-align: center; cursor: pointer; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+        /* ========= 全屏媒体查看器样式 ========= */
+        #media-viewer-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 400; align-items: center; justify-content: center;
+        }
+        #media-viewer-content { max-width: 90%; max-height: 90%; display: flex; justify-content: center; align-items: center; }
+        #media-viewer-content img, #media-viewer-content video { max-width: 100%; max-height: 90vh; object-fit: contain; border-radius: 8px; }
+        .viewer-nav-btn {
+            position: absolute; top: 50%; transform: translateY(-50%); font-size: 40px; color: white;
+            cursor: pointer; user-select: none; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 10px;
+        }
+        .viewer-nav-btn:hover { background: rgba(0,0,0,0.6); }
+        .prev-btn { left: 20px; }
+        .next-btn { right: 20px; }
+        .close-viewer-btn { position: absolute; top: 20px; right: 30px; font-size: 40px; color: white; cursor: pointer; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+    </style>
+
+    <script type="text/javascript">
+        window._AMapSecurityConfig = { securityJsCode: 'a5cb8e04379165761735571cbf366313' }
+    </script>
+    <script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=82d5e39c2e1eed2ddee06c8327fd5c5a&plugin=AMap.AutoComplete,AMap.PlaceSearch"></script>
+</head>
+<body>
+
+    <div id="map-container"></div>
+
+    <div id="search-box">
+        <span style="color: #888; margin-right: 5px;">🔍</span>
+        <input type="text" id="searchInput" placeholder="Search...">
+        <button id="cancelBtn">Cancel</button>
+    </div>
+
+    <div id="layer-switch">
+        <button id="btnStandard" class="layer-btn active">标准</button>
+        <button id="btnSatellite" class="layer-btn">卫星</button>
+    </div>
+
+    <div id="filter-bar">
+        <img src="Images/tree.png" class="filter-icon" data-type="tree" alt="风景">
+        <img src="Images/food.png" class="filter-icon" data-type="food" alt="美食">
+        <img src="Images/cafe.png" class="filter-icon" data-type="cafe" alt="咖啡">
+        <img src="Images/fancy_food.png" class="filter-icon" data-type="fancy_food" alt="高档饭店">
+        <img src="Images/clothes.png" class="filter-icon" data-type="clothes" alt="服饰">
+        <img src="Images/book.png" class="filter-icon" data-type="book" alt="书店">
+    </div>
+
+    <div id="save-bar">
+        <p>Save as</p>
+        <div class="icon-container">
+            <img src="Images/tree.png" class="category-icon save-btn" data-type="tree" alt="风景">
+            <img src="Images/food.png" class="category-icon save-btn" data-type="food" alt="美食">
+            <img src="Images/cafe.png" class="category-icon save-btn" data-type="cafe" alt="咖啡">
+            <img src="Images/fancy_food.png" class="category-icon save-btn" data-type="fancy_food" alt="高档饭店">
+            <img src="Images/clothes.png" class="category-icon save-btn" data-type="clothes" alt="服饰">
+            <img src="Images/book.png" class="category-icon save-btn" data-type="book" alt="书店">
+            <img src="Images/house.png" class="category-icon" id="houseIcon" alt="住所">
+        </div>
+    </div>
+
+    <div id="sidebar">
+        <div class="close-sidebar-area" onclick="closeSidebar()">✖</div>
+        <div id="sb-header">
+            <img id="sb-icon" src="">
+            <div id="sb-title-wrapper">
+                <h3 id="sb-custom-name">自定义名</h3>
+                <p id="sb-searched-name">搜索地址</p>
+            </div>
+            <img id="sb-setting-btn" src="Images/setting.png" alt="设置">
+            
+            <div id="settings-panel">
+                <div class="settings-row">
+                    <div style="font-size: 13px; font-weight: bold; color: #555;">修改名称信息:</div>
+                    <input type="text" id="edit-custom-name" class="edit-input" placeholder="自定义店名 (如: Float Vintage)">
+                    <input type="text" id="edit-searched-name" class="edit-input" placeholder="地图地址">
+                    <button id="save-edit-name-btn" class="save-edit-btn">保存名称修改</button>
+                </div>
+                
+                <div class="settings-row">
+                    <div style="font-size: 13px; font-weight: bold; color: #555;">切换分类:</div>
+                    <div class="category-switch-icons">
+                        <img src="Images/tree.png" data-type="tree">
+                        <img src="Images/food.png" data-type="food">
+                        <img src="Images/cafe.png" data-type="cafe">
+                        <img src="Images/fancy_food.png" data-type="fancy_food">
+                        <img src="Images/clothes.png" data-type="clothes">
+                        <img src="Images/book.png" data-type="book">
+                    </div>
+                </div>
+                <div class="settings-row" id="sb-delete-place">Delete</div>
+            </div>
+        </div>
+        <div id="sb-stats">Visit Time: <span id="visit-count">0</span></div>
+        <div id="checkin-list"></div>
+        <div id="sb-footer">
+            <button id="add-checkin-btn">+</button>
+        </div>
+    </div>
+
+    <div id="name-modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <h3 style="margin: 0; text-align: center;">保存地点</h3>
+            <div>
+                <label style="font-size: 12px; color: #666;">自定义名称 (如店名)</label>
+                <input type="text" id="new-custom-name" placeholder="例如: Float Vintage" style="margin-top: 5px;">
+            </div>
+            <div>
+                <label style="font-size: 12px; color: #666;">地图地址</label>
+                <input type="text" id="new-searched-name" style="margin-top: 5px;">
+            </div>
+            <div class="modal-btns">
+                <button id="cancel-name-btn" class="btn-cancel">取消</button>
+                <button id="confirm-name-btn" class="btn-primary">确认保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="residence-modal-overlay" class="modal-overlay">
+        <div class="modal-box" style="width: 260px;">
+            <h3 style="margin: 0; text-align: center;">住所管理</h3>
+            <div style="text-align: center; font-size: 13px; color: #555;">当前状态: <span id="res-status-text" style="font-weight: bold; color: #007bff;"></span></div>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
+                <button id="set-core-res-btn" class="btn-primary" style="width: 100%;">设为核心住所</button>
+                <button id="delete-res-btn" class="btn-danger" style="width: 100%;">删除该住所</button>
+                <button id="cancel-res-btn" class="btn-cancel" style="width: 100%;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="checkin-modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <h3 id="checkin-modal-title" style="margin: 0; text-align: center;">添加打卡</h3>
+            <input type="text" id="ci-date" placeholder="时间 (必须如: 2026.3.12)">
+            <textarea id="ci-desc" placeholder="描述..."></textarea>
+            
+            <div id="ci-existing-media"></div>
+            
+            <label style="font-size: 12px; color: #666; margin-bottom: -10px;">添加新图片/视频 (合并保存)</label>
+            <input type="file" id="ci-media" multiple accept="image/*,video/*">
+            
+            <div class="modal-btns">
+                <button id="cancel-add-btn" class="btn-cancel">取消</button>
+                <button id="confirm-add-btn" class="btn-primary">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="media-viewer-overlay">
+        <div class="close-viewer-btn" onclick="closeMediaViewer()">✖</div>
+        <div class="viewer-nav-btn prev-btn" onclick="prevMedia()">&#10094;</div>
+        <div id="media-viewer-content"></div>
+        <div class="viewer-nav-btn next-btn" onclick="nextMedia()">&#10095;</div>
+    </div>
+
+    <script>
+        // ============================
+        // 核心配置区：阿里云 OSS 初始化
+        // ============================
+        const client = new OSS({
+            region: 'oss-cn-hangzhou', 
+            accessKeyId: 'LTAI5tHxC1dXxL8Gsy8kBEGU',       
+            accessKeySecret: '4MoeObdIp1hnJXAmIIH71mNCFmXTJO', 
+            bucket: 'life-map'               
+        });
+
+        // ============================
+        // 全局变量声明
+        // ============================
+        const HUAWEI_CENTER = [120.203022, 30.187895]; 
+        let map, tempMarker;
+        let selectedLocation = null;
+        let selectedLocationName = "未知地点"; 
+        
+        let markersMap = {}; 
+        let residenceMarkersMap = {}; 
+        
+        let currentPlaceId = null; 
+        let currentResId = null; 
+        let pendingSaveType = null; 
+        
+        let editingCheckinId = null;
+        let currentExistingMedia = []; 
+        let currentViewerMedia = [];
+        let currentViewerIndex = 0;
+        let currentFilter = null; 
+
+        let savedResidences = [];
+        let savedPlaces = [];
+        let initialCenter = HUAWEI_CENTER;
+
+        // ============================
+        // 数据云端同步 & 物理删除核心函数
+        // ============================
+        async function syncDataToOSS() {
+            const dataObj = { residences: savedResidences, places: savedPlaces };
+            const blob = new Blob([JSON.stringify(dataObj)], { type: 'application/json' });
+            try {
+                await client.put('life-map-data.json', blob);
+            } catch (e) {
+                console.error("同步云端失败", e);
+                alert("数据同步失败，请检查网络或秘钥配置");
+            }
+        }
+
+        // 解析 URL 并物理删除 OSS 中的文件
+        async function deleteMediaFromOSS(url) {
+            try {
+                const urlObj = new URL(url);
+                const objectName = decodeURIComponent(urlObj.pathname.substring(1)); // 去掉最前面的 '/'
+                await client.delete(objectName);
+                console.log("物理删除成功:", objectName);
+            } catch (e) {
+                console.error("物理删除失败:", e);
+            }
+        }
+
+        // ============================
+        // 页面初始化与数据拉取
+        // ============================
+        async function initMapData() {
+            try {
+                const result = await client.get('life-map-data.json');
+                const dataStr = new TextDecoder().decode(result.content);
+                const data = JSON.parse(dataStr);
+                savedResidences = data.residences || [];
+                savedPlaces = data.places || [];
+            } catch (e) {
+                console.log("云端尚无数据文件，将以空数据初始化。");
+            }
+
+            const coreRes = savedResidences.find(r => r.isCore);
+            if (coreRes) initialCenter = coreRes.lnglat;
+
+            map = new AMap.Map('map-container', {
+                zoom: 15, center: initialCenter, features: ['bg', 'road', 'building', 'point'] 
+            });
+
+            let satelliteLayer = new AMap.TileLayer.Satellite({ zIndex: 0 });
+            satelliteLayer.setMap(map);
+            satelliteLayer.hide();
+
+            document.getElementById('btnStandard').onclick = function() {
+                satelliteLayer.hide(); map.setFeatures(['bg', 'road', 'building', 'point']); 
+                this.classList.add('active'); document.getElementById('btnSatellite').classList.remove('active');
+            };
+            document.getElementById('btnSatellite').onclick = function() {
+                satelliteLayer.show(); map.setFeatures(['point']); 
+                this.classList.add('active'); document.getElementById('btnStandard').classList.remove('active');
+            };
+
+            savedResidences.forEach(res => drawResidenceMarker(res));
+            savedPlaces.forEach(place => drawPlaceMarker(place));
+
+            let autoOptions = { input: "searchInput" };
+            let auto = new AMap.AutoComplete(autoOptions);
+            let placeSearch = new AMap.PlaceSearch({ map: null });
+
+            auto.on("select", function(e) {
+                selectedLocationName = e.poi.name; 
+                if (e.poi && e.poi.location) {
+                    handleSearchComplete([e.poi.location.lng, e.poi.location.lat]);
+                } else {
+                    placeSearch.setCity(e.poi.adcode);
+                    placeSearch.search(e.poi.name, function(status, result) {
+                        if (status === 'complete' && result.info === 'OK') {
+                            let poi = result.poiList.pois[0];
+                            handleSearchComplete([poi.location.lng, poi.location.lat]);
+                        }
+                    });
+                }
+            });
+        }
+
+        const searchInput = document.getElementById('searchInput');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const saveBar = document.getElementById('save-bar');
+        const filterBar = document.getElementById('filter-bar');
+        const sidebar = document.getElementById('sidebar');
+        const searchBox = document.getElementById('search-box');
+
+        function handleSearchComplete(lnglat) {
+            selectedLocation = lnglat;
+            map.setZoomAndCenter(18, selectedLocation);
+            if (tempMarker) map.remove(tempMarker);
+            tempMarker = new AMap.Marker({
+                position: selectedLocation,
+                icon: new AMap.Icon({ size: new AMap.Size(24, 36), image: 'Images/pin.png', imageSize: new AMap.Size(24, 36) }),
+                offset: new AMap.Pixel(-12, -36), map: map
+            });
+            filterBar.style.display = 'none';
+            cancelBtn.style.display = 'block'; 
+            saveBar.style.display = 'block';
+        }
+
+        cancelBtn.onclick = resetSearchState;
+        
+        // ============================
+        // 住所操作逻辑 
+        // ============================
+        document.getElementById('houseIcon').onclick = async function() {
+            if (selectedLocation) {
+                const isFirst = savedResidences.length === 0;
+                const newRes = {
+                    id: 'res_' + Date.now(),
+                    lnglat: selectedLocation,
+                    isCore: isFirst
+                };
+                savedResidences.push(newRes);
+                await syncDataToOSS(); 
+                drawResidenceMarker(newRes);
+                resetSearchState();
+            }
+        };
+
+        function drawResidenceMarker(res) {
+            let marker = new AMap.Marker({
+                position: res.lnglat, 
+                icon: new AMap.Icon({ size: new AMap.Size(40, 40), image: 'Images/house.png', imageSize: new AMap.Size(40, 40) }),
+                offset: new AMap.Pixel(-20, -40), map: map
+            });
+            marker.on('click', () => openResidenceModal(res.id));
+            residenceMarkersMap[res.id] = marker;
+        }
+
+        const resModal = document.getElementById('residence-modal-overlay');
+        function openResidenceModal(resId) {
+            currentResId = resId;
+            const res = savedResidences.find(r => r.id === resId);
+            document.getElementById('res-status-text').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
+            document.getElementById('set-core-res-btn').style.display = res.isCore ? "none" : "block";
+            resModal.style.display = 'flex';
+        }
+
+        document.getElementById('cancel-res-btn').onclick = () => { resModal.style.display = 'none'; };
+
+        document.getElementById('set-core-res-btn').onclick = async () => {
+            savedResidences.forEach(r => r.isCore = (r.id === currentResId));
+            await syncDataToOSS();
+            resModal.style.display = 'none';
+            alert("设置核心住所成功！下次打开将以此为中心。");
+        };
+
+        document.getElementById('delete-res-btn').onclick = () => {
+            tripleConfirm("确定要删除该住所吗？", async () => {
+                const resIndex = savedResidences.findIndex(r => r.id === currentResId);
+                const wasCore = savedResidences[resIndex].isCore;
+                
+                savedResidences.splice(resIndex, 1);
+                if (wasCore && savedResidences.length > 0) {
+                    savedResidences[0].isCore = true;
+                }
+                
+                await syncDataToOSS();
+                map.remove(residenceMarkersMap[currentResId]);
+                delete residenceMarkersMap[currentResId];
+                resModal.style.display = 'none';
+            });
+        };
+
+        // ============================
+        // 底部过滤栏逻辑
+        // ============================
+        function updateFilterUI() {
+            document.querySelectorAll('.filter-icon').forEach(icon => {
+                const type = icon.getAttribute('data-type');
+                if (currentFilter === null) {
+                    icon.style.opacity = '1'; icon.style.transform = 'scale(1)';
+                } else if (currentFilter === type) {
+                    icon.style.opacity = '1'; icon.style.transform = 'scale(1.15)';
+                } else {
+                    icon.style.opacity = '0.4'; icon.style.transform = 'scale(1)';
+                }
+            });
+            
+            savedPlaces.forEach(p => {
+                let m = markersMap[p.id];
+                if (m) {
+                    if (currentFilter === null || p.type === currentFilter) m.show();
+                    else m.hide();
+                }
+            });
+        }
+
+        document.querySelectorAll('.filter-icon').forEach(icon => {
+            icon.onclick = function() {
+                const type = this.getAttribute('data-type');
+                if (currentFilter === type) currentFilter = null; 
+                else currentFilter = type; 
+                updateFilterUI();
+            };
+        });
+
+        // ============================
+        // 搜索保存地点逻辑
+        // ============================
+        document.querySelectorAll('.save-btn').forEach(btn => {
+            if (btn.id === 'houseIcon') return;
+            btn.onclick = function() {
+                if (selectedLocation) {
+                    pendingSaveType = this.getAttribute('data-type');
+                    document.getElementById('name-modal-overlay').style.display = 'flex';
+                    document.getElementById('new-custom-name').value = '';
+                    document.getElementById('new-searched-name').value = selectedLocationName;
+                }
+            };
+        });
+
+        document.getElementById('cancel-name-btn').onclick = function() {
+            document.getElementById('name-modal-overlay').style.display = 'none';
+            pendingSaveType = null;
+        };
+
+        document.getElementById('confirm-name-btn').onclick = async function() {
+            let customVal = document.getElementById('new-custom-name').value.trim();
+            let searchedVal = document.getElementById('new-searched-name').value.trim();
+            if (!customVal) customVal = searchedVal || "未知地点";
+
+            const newPlace = {
+                id: Math.random().toString(36).substr(2, 9),
+                customName: customVal, searchedName: searchedVal, type: pendingSaveType,
+                lnglat: selectedLocation, checkins: []
+            };
+            
+            savedPlaces.push(newPlace);
+            await syncDataToOSS(); 
+            drawPlaceMarker(newPlace);
+            
+            currentFilter = null;
+            updateFilterUI();
+            
+            document.getElementById('name-modal-overlay').style.display = 'none';
+            resetSearchState();
+        };
+
+        function drawPlaceMarker(place) {
+            let marker = new AMap.Marker({
+                position: place.lnglat,
+                icon: new AMap.Icon({ size: new AMap.Size(30, 30), image: `Images/${place.type}.png`, imageSize: new AMap.Size(30, 30) }),
+                offset: new AMap.Pixel(-15, -15), map: map
+            });
+            marker.on('click', () => openSidebar(place.id));
+            markersMap[place.id] = marker;
+        }
+
+        function resetSearchState() {
+            searchInput.value = ''; cancelBtn.style.display = 'none'; saveBar.style.display = 'none';
+            filterBar.style.display = 'flex'; 
+            if (tempMarker) { map.remove(tempMarker); tempMarker = null; }
+            selectedLocation = null; selectedLocationName = "未知地点";
+        }
+
+        function tripleConfirm(msg, onSuccess) {
+            if(confirm(msg + "\n(第一次确认 1/3)")) {
+                if(confirm(msg + "\n(第二次确认 2/3)")) {
+                    if(confirm(msg + "\n(最后一次确认 3/3)")) { onSuccess(); }
+                }
+            }
+        }
+
+        // ============================
+        // 侧边栏及彻底物理删除地点逻辑
+        // ============================
+        function openSidebar(id) {
+            if (currentPlaceId && markersMap[currentPlaceId]) {
+                const oldPlace = savedPlaces.find(p => p.id === currentPlaceId);
+                if (oldPlace) {
+                    markersMap[currentPlaceId].setIcon(new AMap.Icon({
+                        size: new AMap.Size(30, 30), image: `Images/${oldPlace.type}.png`, imageSize: new AMap.Size(30, 30)
+                    }));
+                    markersMap[currentPlaceId].setOffset(new AMap.Pixel(-15, -15));
+                    markersMap[currentPlaceId].setTop(false);
+                }
+            }
+
+            currentPlaceId = id;
+            const place = savedPlaces.find(p => p.id === id);
+            if(!place) return;
+
+            if (markersMap[id]) {
+                markersMap[id].setIcon(new AMap.Icon({
+                    size: new AMap.Size(60, 60), image: `Images/${place.type}.png`, imageSize: new AMap.Size(60, 60)
+                }));
+                markersMap[id].setOffset(new AMap.Pixel(-30, -30));
+                markersMap[id].setTop(true);
+            }
+
+            document.getElementById('sb-icon').src = `Images/${place.type}.png`;
+            document.getElementById('sb-custom-name').innerText = place.customName;
+            document.getElementById('sb-searched-name').innerText = place.searchedName;
+            
+            document.getElementById('edit-custom-name').value = place.customName;
+            document.getElementById('edit-searched-name').value = place.searchedName;
+
+            document.getElementById('settings-panel').style.display = 'none';
+            renderCheckins(place);
+
+            sidebar.classList.add('open');
+            searchBox.style.opacity = '0'; 
+            filterBar.style.transform = 'translate(-50%, 150px)'; 
+            map.panBy(-150, 0); 
+        }
+
+        function closeSidebar() {
+            if (currentPlaceId && markersMap[currentPlaceId]) {
+                const place = savedPlaces.find(p => p.id === currentPlaceId);
+                if (place) {
+                    markersMap[currentPlaceId].setIcon(new AMap.Icon({
+                        size: new AMap.Size(30, 30), image: `Images/${place.type}.png`, imageSize: new AMap.Size(30, 30)
+                    }));
+                    markersMap[currentPlaceId].setOffset(new AMap.Pixel(-15, -15));
+                    markersMap[currentPlaceId].setTop(false);
+                }
+            }
+            sidebar.classList.remove('open');
+            searchBox.style.opacity = '1';
+            filterBar.style.transform = 'translate(-50%, 0)'; 
+            currentPlaceId = null;
+        }
+
+        document.getElementById('sb-setting-btn').onclick = function() {
+            const panel = document.getElementById('settings-panel');
+            panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        };
+
+        document.getElementById('save-edit-name-btn').onclick = async function() {
+            const placeIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
+            if(placeIndex > -1) {
+                const newCustom = document.getElementById('edit-custom-name').value.trim();
+                const newSearch = document.getElementById('edit-searched-name').value.trim();
+                savedPlaces[placeIndex].customName = newCustom || newSearch;
+                savedPlaces[placeIndex].searchedName = newSearch;
+                
+                await syncDataToOSS();
+                
+                document.getElementById('sb-custom-name').innerText = savedPlaces[placeIndex].customName;
+                document.getElementById('sb-searched-name').innerText = savedPlaces[placeIndex].searchedName;
+                document.getElementById('settings-panel').style.display = 'none';
+            }
+        };
+
+        document.querySelectorAll('.category-switch-icons img').forEach(icon => {
+            icon.onclick = async function() {
+                const newType = this.getAttribute('data-type');
+                const placeIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
+                if(placeIndex > -1) {
+                    savedPlaces[placeIndex].type = newType;
+                    await syncDataToOSS();
+                    
+                    document.getElementById('sb-icon').src = `Images/${newType}.png`;
+                    
+                    map.remove(markersMap[currentPlaceId]);
+                    drawPlaceMarker(savedPlaces[placeIndex]);
+                    
+                    markersMap[currentPlaceId].setIcon(new AMap.Icon({
+                        size: new AMap.Size(60, 60), image: `Images/${newType}.png`, imageSize: new AMap.Size(60, 60)
+                    }));
+                    markersMap[currentPlaceId].setOffset(new AMap.Pixel(-30, -30));
+                    markersMap[currentPlaceId].setTop(true);
+
+                    document.getElementById('settings-panel').style.display = 'none';
+                    updateFilterUI(); 
+                }
+            };
+        });
+
+        document.getElementById('sb-delete-place').onclick = function() {
+            tripleConfirm("确定要彻底删除该地点及所有打卡记录吗？", async () => {
+                const place = savedPlaces.find(p => p.id === currentPlaceId);
+                
+                // 彻底物理删除该地点下的所有媒体文件
+                if (place && place.checkins) {
+                    for (let ci of place.checkins) {
+                        for (let m of ci.media) {
+                            deleteMediaFromOSS(m.data); // 后台异步清理即可，无需 await 阻塞UI
+                        }
+                    }
+                }
+
+                savedPlaces = savedPlaces.filter(p => p.id !== currentPlaceId);
+                await syncDataToOSS();
+                map.remove(markersMap[currentPlaceId]);
+                delete markersMap[currentPlaceId];
+                closeSidebar();
+            });
+        };
+
+        // ============================
+        // 打卡渲染与彻底物理删除逻辑
+        // ============================
+        function renderCheckins(place) {
+            document.getElementById('visit-count').innerText = place.checkins.length;
+            const listDiv = document.getElementById('checkin-list');
+            listDiv.innerHTML = '';
+
+            let sortedCheckins = [...place.checkins].sort((a, b) => new Date(b.date.replace(/\./g, '/')) - new Date(a.date.replace(/\./g, '/')));
+
+            sortedCheckins.forEach((ci) => {
+                const card = document.createElement('div');
+                card.className = 'checkin-card';
+                
+                let mediaHtml = ci.media.map((m, mIndex) => {
+                    if(m.type === 'video') return `<video src="${m.data}" class="clickable-media" data-ci-id="${ci.id}" data-index="${mIndex}"></video>`;
+                    return `<img src="${m.data}" class="clickable-media" data-ci-id="${ci.id}" data-index="${mIndex}">`;
+                }).join('');
+
+                card.innerHTML = `
+                    <div class="checkin-header">
+                        <span>${ci.date}</span>
+                        <div class="checkin-actions">
+                            <img src="Images/setting.png" class="edit-checkin-btn" data-id="${ci.id}" alt="编辑">
+                            <span class="delete-checkin-btn" data-id="${ci.id}">×</span>
+                        </div>
+                    </div>
+                    <div class="checkin-desc">${ci.desc}</div>
+                    <div class="checkin-media-row">${mediaHtml}</div>
+                `;
+                listDiv.appendChild(card);
+            });
+
+            document.querySelectorAll('.clickable-media').forEach(el => {
+                el.onclick = function() {
+                    const ciId = this.getAttribute('data-ci-id');
+                    const idx = parseInt(this.getAttribute('data-index'));
+                    const checkin = place.checkins.find(c => c.id === ciId);
+                    if (checkin && checkin.media.length > 0) openMediaViewer(checkin.media, idx);
+                };
+            });
+
+            document.querySelectorAll('.edit-checkin-btn').forEach(btn => {
+                btn.onclick = function() {
+                    const checkinId = this.getAttribute('data-id');
+                    const pIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
+                    const checkin = savedPlaces[pIndex].checkins.find(c => c.id === checkinId);
+
+                    editingCheckinId = checkinId; 
+                    document.getElementById('checkin-modal-title').innerText = '修改打卡';
+                    document.getElementById('ci-date').value = checkin.date;
+                    document.getElementById('ci-desc').value = checkin.desc;
+                    document.getElementById('ci-media').value = '';
+
+                    currentExistingMedia = [...checkin.media];
+                    renderExistingMediaPreview();
+                    checkinModal.style.display = 'flex';
+                };
+            });
+
+            document.querySelectorAll('.delete-checkin-btn').forEach(btn => {
+                btn.onclick = function() {
+                    const checkinId = this.getAttribute('data-id');
+                    tripleConfirm("确定要删除这条打卡记录吗？", async () => {
+                        const pIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
+                        const checkin = savedPlaces[pIndex].checkins.find(c => c.id === checkinId);
+                        
+                        // 彻底物理删除该打卡记录里的所有媒体文件
+                        if (checkin && checkin.media) {
+                            for (let m of checkin.media) {
+                                deleteMediaFromOSS(m.data);
+                            }
+                        }
+
+                        savedPlaces[pIndex].checkins = savedPlaces[pIndex].checkins.filter(c => c.id !== checkinId);
+                        await syncDataToOSS();
+                        renderCheckins(savedPlaces[pIndex]); 
+                    });
+                };
+            });
+        }
+
+        // ============================
+        // 媒体查看器逻辑
+        // ============================
+        function openMediaViewer(mediaArray, startIndex) {
+            currentViewerMedia = mediaArray; currentViewerIndex = startIndex;
+            updateMediaViewerContent();
+            document.getElementById('media-viewer-overlay').style.display = 'flex';
+        }
+        function closeMediaViewer() {
+            document.getElementById('media-viewer-overlay').style.display = 'none';
+            document.getElementById('media-viewer-content').innerHTML = ''; 
+        }
+        function prevMedia() {
+            if (currentViewerMedia.length <= 1) return;
+            currentViewerIndex = (currentViewerIndex - 1 + currentViewerMedia.length) % currentViewerMedia.length;
+            updateMediaViewerContent();
+        }
+        function nextMedia() {
+            if (currentViewerMedia.length <= 1) return;
+            currentViewerIndex = (currentViewerIndex + 1) % currentViewerMedia.length;
+            updateMediaViewerContent();
+        }
+        function updateMediaViewerContent() {
+            const media = currentViewerMedia[currentViewerIndex];
+            const contentDiv = document.getElementById('media-viewer-content');
+            if (media.type === 'video') contentDiv.innerHTML = `<video src="${media.data}" controls autoplay></video>`;
+            else contentDiv.innerHTML = `<img src="${media.data}">`;
+        }
+
+        // ============================
+        // 打卡新增与物理更新逻辑
+        // ============================
+        function renderExistingMediaPreview() {
+            const container = document.getElementById('ci-existing-media');
+            container.innerHTML = '';
+            currentExistingMedia.forEach((m, index) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'preview-wrapper';
+                let mediaEl = m.type === 'video' ? `<video src="${m.data}"></video>` : `<img src="${m.data}">`;
+                wrapper.innerHTML = `${mediaEl}<div class="remove-existing-media" data-index="${index}">×</div>`;
+                container.appendChild(wrapper);
+            });
+            document.querySelectorAll('.remove-existing-media').forEach(btn => {
+                btn.onclick = function() {
+                    const idx = parseInt(this.getAttribute('data-index'));
+                    currentExistingMedia.splice(idx, 1); 
+                    renderExistingMediaPreview(); 
+                };
+            });
+        }
+
+        const checkinModal = document.getElementById('checkin-modal-overlay');
+        
+        document.getElementById('add-checkin-btn').onclick = () => {
+            editingCheckinId = null; currentExistingMedia = [];
+            document.getElementById('checkin-modal-title').innerText = '添加打卡';
+            document.getElementById('ci-date').value = '';
+            document.getElementById('ci-desc').value = '';
+            document.getElementById('ci-media').value = '';
+            document.getElementById('ci-existing-media').innerHTML = ''; 
+            checkinModal.style.display = 'flex';
+        };
+
+        document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
+
+        document.getElementById('confirm-add-btn').onclick = async () => {
+            const dateStr = document.getElementById('ci-date').value.trim();
+            const desc = document.getElementById('ci-desc').value.trim();
+            const files = document.getElementById('ci-media').files;
+
+            if (!/^\d{4}\.\d{1,2}\.\d{1,2}$/.test(dateStr)) {
+                alert("时间格式错误！请务必按照 年.月.日 的格式填写，例如：2026.3.12"); return;
+            }
+
+            const btn = document.getElementById('confirm-add-btn');
+            btn.innerText = "正在上传云端...";
+            btn.disabled = true;
+
+            let newMediaArr = [];
+            
+            // 上传新文件
+            if (files.length > 0) {
+                for(let i=0; i<files.length; i++) {
+                    let file = files[i];
+                    let fileExt = file.name.split('.').pop();
+                    let safeName = `uploads/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+                    
+                    try {
+                        let result = await client.put(safeName, file);
+                        let mediaType = file.type.startsWith('video') ? 'video' : 'image';
+                        newMediaArr.push({ type: mediaType, data: result.url });
+                    } catch(e) {
+                        alert(`文件 ${file.name} 上传失败！`);
+                        console.error(e);
+                        btn.innerText = "保存";
+                        btn.disabled = false;
+                        return;
+                    }
+                }
+            }
+
+            const finalMediaArr = editingCheckinId ? [...currentExistingMedia, ...newMediaArr] : newMediaArr;
+            const pIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
+
+            if (editingCheckinId) {
+                const cIndex = savedPlaces[pIndex].checkins.findIndex(c => c.id === editingCheckinId);
+                const oldMedia = savedPlaces[pIndex].checkins[cIndex].media;
+                
+                // 找出在编辑时被用户点 "x" 删掉的旧图，并真正从物理硬盘删除它们
+                const finalMediaUrls = finalMediaArr.map(m => m.data);
+                const mediaToDelete = oldMedia.filter(m => !finalMediaUrls.includes(m.data));
+                for (let m of mediaToDelete) {
+                    deleteMediaFromOSS(m.data); 
+                }
+
+                savedPlaces[pIndex].checkins[cIndex].date = dateStr;
+                savedPlaces[pIndex].checkins[cIndex].desc = desc;
+                savedPlaces[pIndex].checkins[cIndex].media = finalMediaArr;
+            } else {
+                const newCheckin = { id: Date.now().toString(), date: dateStr, desc: desc, media: finalMediaArr };
+                savedPlaces[pIndex].checkins.push(newCheckin);
+            }
+
+            await syncDataToOSS(); 
+
+            btn.innerText = "保存";
+            btn.disabled = false;
+            checkinModal.style.display = 'none';
+            renderCheckins(savedPlaces[pIndex]);
+        };
+        
+        // 执行启动
+        initMapData();
+        updateFilterUI();
+    </script>
+</body>
+</html>
