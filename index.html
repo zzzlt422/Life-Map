@@ -345,9 +345,10 @@
 
     <script>
         // ============================
-        // 核心安全配置区
+        // 核心：双客户端自动容灾降级初始化
         // ============================
-        let client = null;
+        let accClient = null; // 加速通道客户端 (专门负责上传大文件)
+        let stdClient = null; // 普通通道客户端 (兜底备份、拉取数据)
 
         function initOSSClient() {
             const ak = localStorage.getItem('life_map_oss_ak');
@@ -355,15 +356,26 @@
             const bucket = localStorage.getItem('life_map_oss_bucket');
             
             if (ak && sk && bucket) {
-                // 默认使用普通地域节点，用于拉取 JSON 配置等常规轻量级操作
-                client = new OSS({
+                // 1. 初始化加速客户端 (用于尝试高速上传)
+                accClient = new OSS({
+                    endpoint: 'oss-accelerate.aliyuncs.com', 
+                    accessKeyId: ak,       
+                    accessKeySecret: sk, 
+                    bucket: bucket,
+                    secure: true,
+                    timeout: 600000 
+                });
+                
+                // 2. 初始化普通客户端 (用于读取 JSON 数据，以及当加速失效时的无缝兜底)
+                stdClient = new OSS({
                     region: 'oss-cn-hangzhou', 
                     accessKeyId: ak,       
                     accessKeySecret: sk, 
                     bucket: bucket,
                     secure: true,
-                    timeout: 60000 
+                    timeout: 600000 
                 });
+                
                 return true;
             }
             return false;
@@ -424,6 +436,7 @@
         let savedPlaces = [];
         let initialCenter = HUAWEI_CENTER;
 
+        // 获取缩略图：继续沿用极度省流量的缩放参数
         function getThumbnailUrl(url, type) {
             if (!url || !url.includes('aliyuncs.com')) return url;
             if (type === 'video') {
@@ -437,11 +450,16 @@
         // 数据云端同步 & 物理删除
         // ============================
         async function syncDataToOSS() {
-            if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return false; }
+            if(!stdClient) { alert("请先点击右上角【云端配置】输入秘钥！"); return false; }
             const dataObj = { residences: savedResidences, places: savedPlaces };
             const blob = new Blob([JSON.stringify(dataObj)], { type: 'application/json' });
             try {
-                await client.put('life-map-data.json', blob);
+                // 存 JSON 这种极小的数据，也包裹一层容灾
+                try {
+                    await accClient.put('life-map-data.json', blob);
+                } catch(e) {
+                    await stdClient.put('life-map-data.json', blob);
+                }
                 return true;
             } catch (e) {
                 console.error("同步云端失败", e);
@@ -451,11 +469,11 @@
         }
 
         async function deleteMediaFromOSS(url) {
-            if(!client) return;
+            if(!stdClient) return;
             try {
                 const urlObj = new URL(url);
                 const objectName = decodeURIComponent(urlObj.pathname.substring(1)); 
-                await client.delete(objectName);
+                await stdClient.delete(objectName); // 删除指令非常轻量，用普通端即可
             } catch (e) { console.error("物理删除失败:", e); }
         }
 
@@ -463,9 +481,10 @@
         // 核心地图初始化与拉取
         // ============================
         async function loadDataAndRender() {
-            if(!client) return;
+            if(!stdClient) return;
             try {
-                const result = await client.get('life-map-data.json');
+                // 拉取数据使用普通端
+                const result = await stdClient.get('life-map-data.json');
                 const dataStr = new TextDecoder().decode(result.content);
                 const data = JSON.parse(dataStr);
                 
@@ -554,7 +573,7 @@
         // 住所操作与侧边栏展示
         // ============================
         document.getElementById('houseIcon').onclick = async function() {
-            if(!client) { alert("请先配置云端！"); return; }
+            if(!stdClient) { alert("请先配置云端！"); return; }
             if (selectedLocation) {
                 const isFirst = savedResidences.length === 0;
                 const newRes = { id: 'res_' + Date.now(), lnglat: selectedLocation, isCore: isFirst, media: [] };
@@ -665,7 +684,7 @@
         }
 
         document.getElementById('set-core-res-btn').onclick = async () => {
-            if(!client) { alert("请先配置云端！"); return; }
+            if(!stdClient) { alert("请先配置云端！"); return; }
             const oldState = JSON.stringify(savedResidences);
             savedResidences.forEach(r => r.isCore = (r.id === currentResId));
             
@@ -679,7 +698,7 @@
 
         document.getElementById('sb-delete-res').onclick = () => {
             tripleConfirm("确定要彻底删除该住所及其中所有媒体吗？", async () => {
-                if(!client) { alert("请先配置云端！"); return; }
+                if(!stdClient) { alert("请先配置云端！"); return; }
                 const resIndex = savedResidences.findIndex(r => r.id === currentResId);
                 const wasCore = savedResidences[resIndex].isCore;
                 const deletedRes = savedResidences[resIndex];
@@ -700,22 +719,18 @@
             });
         };
 
-        // ====== 住所上传：自动降级 + 暴力替换 URL ======
+        // ====== 住所上传：双引擎容灾机制 ======
         document.getElementById('cancel-res-upload-btn').onclick = () => {
             document.getElementById('res-upload-modal-overlay').style.display = 'none';
         };
 
         document.getElementById('confirm-res-upload-btn').onclick = async () => {
-            if(!client) { alert("请先配置云端！"); return; }
+            if(!stdClient) { alert("请先配置云端！"); return; }
             const files = document.getElementById('res-upload-media').files;
             if (files.length === 0) { alert("请选择要上传的文件！"); return; }
 
-            const ak = localStorage.getItem('life_map_oss_ak');
-            const sk = localStorage.getItem('life_map_oss_sk');
-            const bucket = localStorage.getItem('life_map_oss_bucket');
-
             const btn = document.getElementById('confirm-res-upload-btn');
-            btn.innerText = "正在稳定上传..."; btn.disabled = true;
+            btn.innerText = "正在智能上传..."; btn.disabled = true;
 
             const progContainer = document.getElementById('res-progress-container');
             const progBar = document.getElementById('res-progress-bar');
@@ -726,6 +741,7 @@
             progBar.style.width = '0%';
 
             let newMediaArr = [];
+            const bucket = localStorage.getItem('life_map_oss_bucket');
             
             for(let i=0; i<files.length; i++) {
                 let file = files[i];
@@ -734,48 +750,35 @@
                 
                 let percentBefore = ((i / files.length) * 100).toFixed(1) + '%';
                 progBar.style.width = percentBefore;
-                progText.innerText = `正在传输数据 第 ${i+1}/${files.length} 个文件...`;
+                progText.innerText = `正在传输 第 ${i+1}/${files.length} 个文件...`;
 
                 let result;
-                let finalObjectName = safeName;
-
                 try {
-                    // 第1步：先尝试普通杭州节点上传
-                    result = await client.put(safeName, file);
-                    finalObjectName = result.name || safeName;
-                } catch(e) {
-                    console.warn(`普通通道上传失败，尝试切换加速通道: ${e.message}`);
-                    progText.innerText = `第 ${i+1} 个文件普通传输超时，已切换至全球加速专线...`;
-                    
-                    // 第2步：普通上传失败，临时初始化全球加速客户端
-                    const accClient = new OSS({
-                        endpoint: 'oss-accelerate.aliyuncs.com', // 开启传输加速域名
-                        accessKeyId: ak,
-                        accessKeySecret: sk,
-                        bucket: bucket,
-                        secure: true,
-                        timeout: 600000 // 加长超时容忍
-                    });
-
                     try {
+                        // 【首选】尝试通过阿里云专线加速上传
                         result = await accClient.put(safeName, file);
-                        finalObjectName = result.name || safeName;
-                    } catch(accErr) {
-                        alert(`文件 ${file.name} 跨国上传失败。\n已尝试普通和加速通道，请检查网络或确认控制台已开启传输加速！`);
-                        console.error(accErr);
-                        btn.innerText = "保存上传"; btn.disabled = false;
-                        return; 
+                    } catch (accErr) {
+                        // 【兜底】如果未开启加速服务或加速线路波动，无缝降级到普通杭州线路上传
+                        console.warn(`文件 ${file.name} 加速通道失败，自动为您降级至普通通道上传...`, accErr);
+                        result = await stdClient.put(safeName, file);
                     }
+
+                    // 【核心省钱逻辑】：无论怎么传上去的，最后保存入库时强制拼成普通节点的 URL！
+                    // 这样以后每次看图都只花最便宜的普通流量费！
+                    let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${result.name}`;
+                    let mediaType = file.type.startsWith('video') ? 'video' : 'image';
+                    newMediaArr.push({ type: mediaType, data: standardUrl });
+
+                    let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
+                    progBar.style.width = percentAfter;
+                    progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
+
+                } catch(e) {
+                    alert(`文件 ${file.name} 彻底上传失败，请检查网络！`);
+                    console.error(e);
+                    btn.innerText = "保存上传"; btn.disabled = false;
+                    return; 
                 }
-
-                // 第3步：【极致省钱核心】不论哪种通道传上去的，存数据库一律强制替换回普通节点！
-                let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${finalObjectName}`;
-                let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                newMediaArr.push({ type: mediaType, data: standardUrl });
-
-                let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
-                progBar.style.width = percentAfter;
-                progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
             }
 
             const rIndex = savedResidences.findIndex(r => r.id === currentResId);
@@ -832,7 +835,7 @@
         document.querySelectorAll('.save-btn').forEach(btn => {
             if (btn.id === 'houseIcon') return;
             btn.onclick = function() {
-                if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
+                if(!stdClient) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
                 if (selectedLocation) {
                     pendingSaveType = this.getAttribute('data-type');
                     document.getElementById('name-modal-overlay').style.display = 'flex';
@@ -971,7 +974,7 @@
         };
 
         document.getElementById('save-edit-name-btn').onclick = async function() {
-            if(!client) { alert("请先配置云端！"); return; }
+            if(!stdClient) { alert("请先配置云端！"); return; }
             const placeIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
             if(placeIndex > -1) {
                 const oldCustom = savedPlaces[placeIndex].customName;
@@ -995,7 +998,7 @@
 
         document.querySelectorAll('.category-switch-icons img').forEach(icon => {
             icon.onclick = async function() {
-                if(!client) { alert("请先配置云端！"); return; }
+                if(!stdClient) { alert("请先配置云端！"); return; }
                 const newType = this.getAttribute('data-type');
                 const placeIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
                 if(placeIndex > -1) {
@@ -1024,7 +1027,7 @@
 
         document.getElementById('sb-delete-place').onclick = function() {
             tripleConfirm("确定要彻底删除该地点及所有打卡记录吗？", async () => {
-                if(!client) { alert("请先配置云端！"); return; }
+                if(!stdClient) { alert("请先配置云端！"); return; }
                 const place = savedPlaces.find(p => p.id === currentPlaceId);
                 const oldPlaces = [...savedPlaces];
                 
@@ -1120,7 +1123,7 @@
             document.querySelectorAll('.delete-checkin-btn').forEach(btn => {
                 btn.onclick = function() {
                     tripleConfirm("确定要删除这条打卡记录吗？", async () => {
-                        if(!client) { alert("请先配置云端！"); return; }
+                        if(!stdClient) { alert("请先配置云端！"); return; }
                         const checkinId = this.getAttribute('data-id');
                         const pIndex = savedPlaces.findIndex(p => p.id === currentPlaceId);
                         const checkin = savedPlaces[pIndex].checkins.find(c => c.id === checkinId);
@@ -1202,7 +1205,7 @@
         const checkinModal = document.getElementById('checkin-modal-overlay');
         
         document.getElementById('add-checkin-btn').onclick = () => {
-            if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
+            if(!stdClient) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
             if (currentResId) {
                 document.getElementById('res-upload-media').value = '';
                 document.getElementById('res-progress-container').style.display = 'none';
@@ -1223,9 +1226,9 @@
 
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
-        // ====== 常规打卡：自动降级 + 暴力替换 URL ======
+        // ====== 常规打卡上传：双引擎容灾机制 ======
         document.getElementById('confirm-add-btn').onclick = async () => {
-            if(!client) { alert("请先配置云端！"); return; }
+            if(!stdClient) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
             const desc = document.getElementById('ci-desc').value.trim();
             const files = document.getElementById('ci-media').files;
@@ -1234,18 +1237,15 @@
                 alert("时间格式错误！请务必按照 年.月.日 的格式填写，例如：2026.3.12"); return;
             }
 
-            const ak = localStorage.getItem('life_map_oss_ak');
-            const sk = localStorage.getItem('life_map_oss_sk');
-            const bucket = localStorage.getItem('life_map_oss_bucket');
-
             const btn = document.getElementById('confirm-add-btn');
-            btn.innerText = "正在稳定上传..."; btn.disabled = true;
+            btn.innerText = "正在智能上传..."; btn.disabled = true;
 
             const progContainer = document.getElementById('ci-progress-container');
             const progBar = document.getElementById('ci-progress-bar');
             const progText = document.getElementById('ci-progress-text');
 
             let newMediaArr = [];
+            const bucket = localStorage.getItem('life_map_oss_bucket');
             
             if (files.length > 0) {
                 progContainer.style.display = 'block';
@@ -1259,48 +1259,34 @@
                     
                     let percentBefore = ((i / files.length) * 100).toFixed(1) + '%';
                     progBar.style.width = percentBefore;
-                    progText.innerText = `正在传输数据 第 ${i+1}/${files.length} 个文件...`;
+                    progText.innerText = `正在传输 第 ${i+1}/${files.length} 个文件...`;
 
                     let result;
-                    let finalObjectName = safeName;
-
                     try {
-                        // 第1步：先尝试普通节点
-                        result = await client.put(safeName, file);
-                        finalObjectName = result.name || safeName;
-                    } catch(e) {
-                        console.warn(`普通通道上传失败，尝试切换加速通道: ${e.message}`);
-                        progText.innerText = `第 ${i+1} 个文件普通传输超时，已切换至全球加速专线...`;
-                        
-                        // 第2步：失败后，临时启用加速客户端
-                        const accClient = new OSS({
-                            endpoint: 'oss-accelerate.aliyuncs.com', // 开启传输加速域名
-                            accessKeyId: ak,
-                            accessKeySecret: sk,
-                            bucket: bucket,
-                            secure: true,
-                            timeout: 600000 // 加长超时容忍
-                        });
-
                         try {
+                            // 【首选】尝试通过阿里云专线加速上传
                             result = await accClient.put(safeName, file);
-                            finalObjectName = result.name || safeName;
-                        } catch(accErr) {
-                            alert(`文件 ${file.name} 跨国上传失败。\n已尝试普通和加速通道，请检查网络或确认控制台已开启传输加速！`);
-                            console.error(accErr);
-                            btn.innerText = "保存"; btn.disabled = false;
-                            return;
+                        } catch (accErr) {
+                            // 【兜底】如果未开启加速服务或加速线路波动，无缝降级到普通杭州线路上传
+                            console.warn(`文件 ${file.name} 加速通道失败，自动为您降级至普通通道上传...`, accErr);
+                            result = await stdClient.put(safeName, file);
                         }
+
+                        // 【核心省钱逻辑】：无论怎么传上去的，最后保存入库时强制拼成普通节点的 URL！
+                        let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${result.name}`;
+                        let mediaType = file.type.startsWith('video') ? 'video' : 'image';
+                        newMediaArr.push({ type: mediaType, data: standardUrl });
+
+                        let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
+                        progBar.style.width = percentAfter;
+                        progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
+
+                    } catch(e) {
+                        alert(`文件 ${file.name} 彻底上传失败，请检查网络！`);
+                        console.error(e);
+                        btn.innerText = "保存"; btn.disabled = false;
+                        return;
                     }
-
-                    // 第3步：【极致省钱核心】不管怎么传的，强制换成普通节点存储
-                    let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${finalObjectName}`;
-                    let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                    newMediaArr.push({ type: mediaType, data: standardUrl });
-
-                    let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
-                    progBar.style.width = percentAfter;
-                    progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
                 }
             }
 
