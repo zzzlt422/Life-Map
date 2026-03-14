@@ -355,11 +355,14 @@
             const bucket = localStorage.getItem('life_map_oss_bucket');
             
             if (ak && sk && bucket) {
+                // 默认使用普通地域节点，用于拉取 JSON 配置等常规轻量级操作
                 client = new OSS({
                     region: 'oss-cn-hangzhou', 
                     accessKeyId: ak,       
                     accessKeySecret: sk, 
-                    bucket: bucket
+                    bucket: bucket,
+                    secure: true,
+                    timeout: 60000 
                 });
                 return true;
             }
@@ -421,7 +424,6 @@
         let savedPlaces = [];
         let initialCenter = HUAWEI_CENTER;
 
-        // 获取缩略图
         function getThumbnailUrl(url, type) {
             if (!url || !url.includes('aliyuncs.com')) return url;
             if (type === 'video') {
@@ -698,7 +700,7 @@
             });
         };
 
-        // ====== 住所上传：直传(put) + 文件级进度条 ======
+        // ====== 住所上传：自动降级 + 暴力替换 URL ======
         document.getElementById('cancel-res-upload-btn').onclick = () => {
             document.getElementById('res-upload-modal-overlay').style.display = 'none';
         };
@@ -707,6 +709,10 @@
             if(!client) { alert("请先配置云端！"); return; }
             const files = document.getElementById('res-upload-media').files;
             if (files.length === 0) { alert("请选择要上传的文件！"); return; }
+
+            const ak = localStorage.getItem('life_map_oss_ak');
+            const sk = localStorage.getItem('life_map_oss_sk');
+            const bucket = localStorage.getItem('life_map_oss_bucket');
 
             const btn = document.getElementById('confirm-res-upload-btn');
             btn.innerText = "正在稳定上传..."; btn.disabled = true;
@@ -726,28 +732,50 @@
                 let fileExt = file.name.split('.').pop();
                 let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                 
-                // 更新进度：开始传第 i 个文件
                 let percentBefore = ((i / files.length) * 100).toFixed(1) + '%';
                 progBar.style.width = percentBefore;
-                progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个文件...`;
+                progText.innerText = `正在传输数据 第 ${i+1}/${files.length} 个文件...`;
+
+                let result;
+                let finalObjectName = safeName;
 
                 try {
-                    // 核心：退回使用最稳妥的单次直传，避免复杂的握手
-                    let result = await client.put(safeName, file);
-                    let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                    newMediaArr.push({ type: mediaType, data: result.url });
-
-                    // 更新进度：第 i 个文件传完
-                    let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
-                    progBar.style.width = percentAfter;
-                    progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
-
+                    // 第1步：先尝试普通杭州节点上传
+                    result = await client.put(safeName, file);
+                    finalObjectName = result.name || safeName;
                 } catch(e) {
-                    alert(`文件 ${file.name} 跨国上传失败。\n如果您经常卡死，建议在阿里云 OSS 控制台为该 Bucket 开启【传输加速】！`);
-                    console.error(e);
-                    btn.innerText = "保存上传"; btn.disabled = false;
-                    return; 
+                    console.warn(`普通通道上传失败，尝试切换加速通道: ${e.message}`);
+                    progText.innerText = `第 ${i+1} 个文件普通传输超时，已切换至全球加速专线...`;
+                    
+                    // 第2步：普通上传失败，临时初始化全球加速客户端
+                    const accClient = new OSS({
+                        endpoint: 'oss-accelerate.aliyuncs.com', // 开启传输加速域名
+                        accessKeyId: ak,
+                        accessKeySecret: sk,
+                        bucket: bucket,
+                        secure: true,
+                        timeout: 600000 // 加长超时容忍
+                    });
+
+                    try {
+                        result = await accClient.put(safeName, file);
+                        finalObjectName = result.name || safeName;
+                    } catch(accErr) {
+                        alert(`文件 ${file.name} 跨国上传失败。\n已尝试普通和加速通道，请检查网络或确认控制台已开启传输加速！`);
+                        console.error(accErr);
+                        btn.innerText = "保存上传"; btn.disabled = false;
+                        return; 
+                    }
                 }
+
+                // 第3步：【极致省钱核心】不论哪种通道传上去的，存数据库一律强制替换回普通节点！
+                let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${finalObjectName}`;
+                let mediaType = file.type.startsWith('video') ? 'video' : 'image';
+                newMediaArr.push({ type: mediaType, data: standardUrl });
+
+                let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
+                progBar.style.width = percentAfter;
+                progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
             }
 
             const rIndex = savedResidences.findIndex(r => r.id === currentResId);
@@ -1195,7 +1223,7 @@
 
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
-        // ====== 常规打卡：直传(put) + 文件级进度条 ======
+        // ====== 常规打卡：自动降级 + 暴力替换 URL ======
         document.getElementById('confirm-add-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
@@ -1205,6 +1233,10 @@
             if (!/^\d{4}\.\d{1,2}\.\d{1,2}$/.test(dateStr)) {
                 alert("时间格式错误！请务必按照 年.月.日 的格式填写，例如：2026.3.12"); return;
             }
+
+            const ak = localStorage.getItem('life_map_oss_ak');
+            const sk = localStorage.getItem('life_map_oss_sk');
+            const bucket = localStorage.getItem('life_map_oss_bucket');
 
             const btn = document.getElementById('confirm-add-btn');
             btn.innerText = "正在稳定上传..."; btn.disabled = true;
@@ -1225,28 +1257,50 @@
                     let fileExt = file.name.split('.').pop();
                     let safeName = `uploads/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                     
-                    // 更新进度：开始传第 i 个文件
                     let percentBefore = ((i / files.length) * 100).toFixed(1) + '%';
                     progBar.style.width = percentBefore;
-                    progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个文件...`;
+                    progText.innerText = `正在传输数据 第 ${i+1}/${files.length} 个文件...`;
+
+                    let result;
+                    let finalObjectName = safeName;
 
                     try {
-                        // 核心：单次直传
-                        let result = await client.put(safeName, file);
-                        let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                        newMediaArr.push({ type: mediaType, data: result.url });
-
-                        // 更新进度：第 i 个文件传完
-                        let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
-                        progBar.style.width = percentAfter;
-                        progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
-
+                        // 第1步：先尝试普通节点
+                        result = await client.put(safeName, file);
+                        finalObjectName = result.name || safeName;
                     } catch(e) {
-                        alert(`文件 ${file.name} 跨国上传失败。\n如果您经常卡死，建议在阿里云 OSS 控制台为该 Bucket 开启【传输加速】！`);
-                        console.error(e);
-                        btn.innerText = "保存"; btn.disabled = false;
-                        return;
+                        console.warn(`普通通道上传失败，尝试切换加速通道: ${e.message}`);
+                        progText.innerText = `第 ${i+1} 个文件普通传输超时，已切换至全球加速专线...`;
+                        
+                        // 第2步：失败后，临时启用加速客户端
+                        const accClient = new OSS({
+                            endpoint: 'oss-accelerate.aliyuncs.com', // 开启传输加速域名
+                            accessKeyId: ak,
+                            accessKeySecret: sk,
+                            bucket: bucket,
+                            secure: true,
+                            timeout: 600000 // 加长超时容忍
+                        });
+
+                        try {
+                            result = await accClient.put(safeName, file);
+                            finalObjectName = result.name || safeName;
+                        } catch(accErr) {
+                            alert(`文件 ${file.name} 跨国上传失败。\n已尝试普通和加速通道，请检查网络或确认控制台已开启传输加速！`);
+                            console.error(accErr);
+                            btn.innerText = "保存"; btn.disabled = false;
+                            return;
+                        }
                     }
+
+                    // 第3步：【极致省钱核心】不管怎么传的，强制换成普通节点存储
+                    let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${finalObjectName}`;
+                    let mediaType = file.type.startsWith('video') ? 'video' : 'image';
+                    newMediaArr.push({ type: mediaType, data: standardUrl });
+
+                    let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
+                    progBar.style.width = percentAfter;
+                    progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
                 }
             }
 
