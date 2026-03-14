@@ -88,7 +88,7 @@
         .checkin-desc { margin-bottom: 10px; color: #666; font-size: 14px; white-space: pre-wrap; line-height: 1.4; }
         .checkin-media-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
 
-        /* ====== 统一缩略图预览框样式 (常规打卡复用) ====== */
+        /* ====== 统一缩略图预览框样式 ====== */
         .preview-box { position: relative; flex-shrink: 0; cursor: pointer; display: block; }
         .preview-box img { height: 100px; width: 100px; border-radius: 4px; object-fit: cover; display: block; }
         
@@ -119,7 +119,7 @@
             border-radius: 50%; font-size: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
 
-        /* ========= 弹窗及弹窗内编辑预览通用样式 ========= */
+        /* ========= 弹窗及进度条通用样式 ========= */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center;
@@ -139,6 +139,10 @@
         .modal-preview-box { position: relative; flex-shrink: 0; }
         .modal-preview-box img { height: 60px; width: 60px; border-radius: 4px; object-fit: cover; display: block; }
         .remove-existing-media { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; line-height: 16px; text-align: center; cursor: pointer; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); z-index: 10; }
+
+        /* 进度条样式 */
+        .progress-container { width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; display: none; margin-top: 5px; }
+        .progress-bar { height: 100%; background-color: #28a745; width: 0%; transition: width 0.2s linear; }
 
         /* ========= 全屏媒体查看器样式 ========= */
         #media-viewer-overlay {
@@ -297,6 +301,11 @@
             <label style="font-size: 12px; color: #666; margin-top: 10px;">选择新图片/视频进行上传</label>
             <input type="file" id="res-upload-media" multiple accept="image/*,video/*" style="margin-top: 5px;">
             
+            <div class="progress-container" id="res-progress-container">
+                <div class="progress-bar" id="res-progress-bar"></div>
+            </div>
+            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="res-progress-text">0%</div>
+
             <div class="modal-btns" style="margin-top: 15px;">
                 <button id="cancel-res-upload-btn" class="btn-cancel">取消</button>
                 <button id="confirm-res-upload-btn" class="btn-primary">保存上传</button>
@@ -315,6 +324,11 @@
             <label style="font-size: 12px; color: #666; margin-bottom: -10px;">添加新图片/视频 (合并保存)</label>
             <input type="file" id="ci-media" multiple accept="image/*,video/*">
             
+            <div class="progress-container" id="ci-progress-container">
+                <div class="progress-bar" id="ci-progress-bar"></div>
+            </div>
+            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="ci-progress-text">0%</div>
+
             <div class="modal-btns" style="margin-top: 10px;">
                 <button id="cancel-add-btn" class="btn-cancel">取消</button>
                 <button id="confirm-add-btn" class="btn-primary">保存</button>
@@ -331,7 +345,7 @@
 
     <script>
         // ============================
-        // 核心安全配置区：动态加载秘钥
+        // 核心安全配置区：加入防超时与HTTPS
         // ============================
         let client = null;
 
@@ -345,7 +359,9 @@
                     region: 'oss-cn-hangzhou', 
                     accessKeyId: ak,       
                     accessKeySecret: sk, 
-                    bucket: bucket               
+                    bucket: bucket,
+                    secure: true,      // 强制使用 HTTPS 提升跨国传输安全性与稳定性
+                    timeout: 600000    // 容忍超时时间拉长至 10 分钟
                 });
                 return true;
             }
@@ -407,14 +423,12 @@
         let savedPlaces = [];
         let initialCenter = HUAWEI_CENTER;
 
-        // 核心：基于 OSS 特性的缩略图获取函数，极大地节省流量
+        // 核心：基于 OSS 特性的缩略图获取函数
         function getThumbnailUrl(url, type) {
             if (!url || !url.includes('aliyuncs.com')) return url;
             if (type === 'video') {
-                // 视频：第1000毫秒截取一张 jpg 格式的图，指定宽300高300等比缩放
                 return url + '?x-oss-process=video/snapshot,t_1000,f_jpg,w_300,h_300,m_fast';
             } else {
-                // 图片：等比缩放并居中裁剪成 300x300 的小图
                 return url + '?x-oss-process=image/resize,m_fill,w_300,h_300';
             }
         }
@@ -427,6 +441,7 @@
             const dataObj = { residences: savedResidences, places: savedPlaces };
             const blob = new Blob([JSON.stringify(dataObj)], { type: 'application/json' });
             try {
+                // JSON 数据很小，直传即可
                 await client.put('life-map-data.json', blob);
                 return true;
             } catch (e) {
@@ -686,6 +701,7 @@
             });
         };
 
+        // 住所：加入进度条与防断裂分片上传
         document.getElementById('cancel-res-upload-btn').onclick = () => {
             document.getElementById('res-upload-modal-overlay').style.display = 'none';
         };
@@ -696,9 +712,19 @@
             if (files.length === 0) { alert("请选择要上传的文件！"); return; }
 
             const btn = document.getElementById('confirm-res-upload-btn');
-            btn.innerText = "正在上传云端..."; btn.disabled = true;
+            btn.innerText = "正在稳定上传..."; btn.disabled = true;
+
+            const progContainer = document.getElementById('res-progress-container');
+            const progBar = document.getElementById('res-progress-bar');
+            const progText = document.getElementById('res-progress-text');
+            
+            progContainer.style.display = 'block';
+            progText.style.display = 'block';
+            progBar.style.width = '0%';
 
             let newMediaArr = [];
+            const bucket = localStorage.getItem('life_map_oss_bucket');
+            const region = 'oss-cn-hangzhou';
             
             for(let i=0; i<files.length; i++) {
                 let file = files[i];
@@ -706,11 +732,24 @@
                 let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                 
                 try {
-                    let result = await client.put(safeName, file);
+                    // 使用多线程分片上传，降低网络波动带来的影响
+                    let result = await client.multipartUpload(safeName, file, {
+                        parallel: 2,           // 限制并发为2，避免海外网络拥堵
+                        partSize: 1024 * 1024, // 1MB 为一个切片，越小越稳
+                        progress: function (p) {
+                            let overallP = ((i + p) / files.length) * 100;
+                            let percent = overallP.toFixed(1) + '%';
+                            progBar.style.width = percent;
+                            progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个: ${percent}`;
+                        }
+                    });
+                    
+                    // 获取最终拼接的 URL
+                    let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
                     let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                    newMediaArr.push({ type: mediaType, data: result.url });
+                    newMediaArr.push({ type: mediaType, data: finalUrl });
                 } catch(e) {
-                    alert(`文件 ${file.name} 上传失败！`);
+                    alert(`文件 ${file.name} 跨国上传失败，请稍后重试！`);
                     console.error(e);
                     btn.innerText = "保存上传"; btn.disabled = false;
                     return; 
@@ -1047,6 +1086,9 @@
                     document.getElementById('ci-desc').value = checkin.desc;
                     document.getElementById('ci-media').value = '';
 
+                    document.getElementById('ci-progress-container').style.display = 'none';
+                    document.getElementById('ci-progress-text').style.display = 'none';
+
                     currentExistingMedia = [...checkin.media];
                     renderExistingMediaPreview();
                     checkinModal.style.display = 'flex';
@@ -1080,7 +1122,7 @@
         }
 
         // ============================
-        // 媒体查看器逻辑 (此处拉取原视频/原图)
+        // 媒体查看器逻辑 
         // ============================
         function openMediaViewer(mediaArray, startIndex) {
             currentViewerMedia = mediaArray; currentViewerIndex = startIndex;
@@ -1141,6 +1183,8 @@
             if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
             if (currentResId) {
                 document.getElementById('res-upload-media').value = '';
+                document.getElementById('res-progress-container').style.display = 'none';
+                document.getElementById('res-progress-text').style.display = 'none';
                 document.getElementById('res-upload-modal-overlay').style.display = 'flex';
             } else if (currentPlaceId) {
                 editingCheckinId = null; currentExistingMedia = [];
@@ -1149,12 +1193,15 @@
                 document.getElementById('ci-desc').value = '';
                 document.getElementById('ci-media').value = '';
                 document.getElementById('ci-existing-media').innerHTML = ''; 
+                document.getElementById('ci-progress-container').style.display = 'none';
+                document.getElementById('ci-progress-text').style.display = 'none';
                 checkinModal.style.display = 'flex';
             }
         };
 
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
+        // 常规打卡：加入进度条与防断裂分片上传
         document.getElementById('confirm-add-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
@@ -1166,22 +1213,43 @@
             }
 
             const btn = document.getElementById('confirm-add-btn');
-            btn.innerText = "正在上传云端..."; btn.disabled = true;
+            btn.innerText = "正在稳定上传..."; btn.disabled = true;
+
+            const progContainer = document.getElementById('ci-progress-container');
+            const progBar = document.getElementById('ci-progress-bar');
+            const progText = document.getElementById('ci-progress-text');
 
             let newMediaArr = [];
+            const bucket = localStorage.getItem('life_map_oss_bucket');
+            const region = 'oss-cn-hangzhou';
             
             if (files.length > 0) {
+                progContainer.style.display = 'block';
+                progText.style.display = 'block';
+                progBar.style.width = '0%';
+
                 for(let i=0; i<files.length; i++) {
                     let file = files[i];
                     let fileExt = file.name.split('.').pop();
                     let safeName = `uploads/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                     
                     try {
-                        let result = await client.put(safeName, file);
+                        let result = await client.multipartUpload(safeName, file, {
+                            parallel: 2,           // 降低并发求稳
+                            partSize: 1024 * 1024, // 1MB 为一个切片
+                            progress: function (p) {
+                                let overallP = ((i + p) / files.length) * 100;
+                                let percent = overallP.toFixed(1) + '%';
+                                progBar.style.width = percent;
+                                progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个: ${percent}`;
+                            }
+                        });
+                        
+                        let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
                         let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                        newMediaArr.push({ type: mediaType, data: result.url });
+                        newMediaArr.push({ type: mediaType, data: finalUrl });
                     } catch(e) {
-                        alert(`文件 ${file.name} 上传失败！`);
+                        alert(`文件 ${file.name} 跨国上传失败，请稍后重试！`);
                         console.error(e);
                         btn.innerText = "保存"; btn.disabled = false;
                         return;
