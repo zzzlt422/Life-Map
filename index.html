@@ -87,13 +87,26 @@
         .delete-checkin-btn { color: red; cursor: pointer; font-size: 18px; line-height: 1; }
         .checkin-desc { margin-bottom: 10px; color: #666; font-size: 14px; white-space: pre-wrap; line-height: 1.4; }
         .checkin-media-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
-        .checkin-media-row img, .checkin-media-row video { height: 100px; border-radius: 4px; object-fit: cover; flex-shrink: 0; cursor: pointer; }
 
-        /* 住所专用的网格图库样式 */
+        /* ====== 统一缩略图预览框样式 (常规打卡复用) ====== */
+        .preview-box { position: relative; flex-shrink: 0; cursor: pointer; display: block; }
+        .preview-box img { height: 100px; width: 100px; border-radius: 4px; object-fit: cover; display: block; }
+        
+        /* 住所专用的网格图库缩略图样式 */
         .res-gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
-        .res-media-wrapper { position: relative; width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.15); background: #eee; }
-        .res-media-wrapper img, .res-media-wrapper video { width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: transform 0.2s; }
-        .res-media-wrapper img:hover, .res-media-wrapper video:hover { transform: scale(1.05); }
+        .res-gallery .preview-box { width: 100%; height: auto; aspect-ratio: 1; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.15); background: #eee; }
+        .res-gallery .preview-box img { width: 100%; height: 100%; transition: transform 0.2s; }
+        .res-gallery .preview-box:hover img { transform: scale(1.05); }
+
+        /* 视频居中播放图标遮罩 */
+        .video-icon-overlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 28px; height: 28px; background: rgba(0,0,0,0.6); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 5;
+        }
+        .video-icon-overlay::after {
+            content: ''; width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 10px solid white; margin-left: 3px;
+        }
         .delete-media-btn { position: absolute; top: 5px; right: 5px; background: rgba(220, 53, 69, 0.9); color: white; width: 22px; height: 22px; border-radius: 50%; text-align: center; line-height: 20px; font-weight: bold; cursor: pointer; font-size: 14px; z-index: 10; border: 1px solid white; box-sizing: border-box; }
         .delete-media-btn:hover { background: red; }
 
@@ -106,7 +119,7 @@
             border-radius: 50%; font-size: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
 
-        /* ========= 弹窗通用样式 ========= */
+        /* ========= 弹窗及弹窗内编辑预览通用样式 ========= */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center;
@@ -123,9 +136,9 @@
         .close-sidebar-area { position: absolute; right: -40px; top: 20px; width: 30px; height: 30px; background: white; text-align: center; line-height: 30px; cursor: pointer; border-radius: 4px; box-shadow: 2px 0 5px rgba(0,0,0,0.2); }
         
         #ci-existing-media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
-        .preview-wrapper { position: relative; flex-shrink: 0; }
-        .preview-wrapper img, .preview-wrapper video { height: 60px; border-radius: 4px; object-fit: cover; cursor: pointer; }
-        .remove-existing-media { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; line-height: 16px; text-align: center; cursor: pointer; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        .modal-preview-box { position: relative; flex-shrink: 0; }
+        .modal-preview-box img { height: 60px; width: 60px; border-radius: 4px; object-fit: cover; display: block; }
+        .remove-existing-media { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; line-height: 16px; text-align: center; cursor: pointer; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); z-index: 10; }
 
         /* ========= 全屏媒体查看器样式 ========= */
         #media-viewer-overlay {
@@ -369,7 +382,7 @@
         };
 
         // ============================
-        // 全局变量声明
+        // 全局变量及工具函数
         // ============================
         const HUAWEI_CENTER = [120.203022, 30.187895]; 
         let map, tempMarker;
@@ -393,6 +406,18 @@
         let savedResidences = [];
         let savedPlaces = [];
         let initialCenter = HUAWEI_CENTER;
+
+        // 核心：基于 OSS 特性的缩略图获取函数，极大地节省流量
+        function getThumbnailUrl(url, type) {
+            if (!url || !url.includes('aliyuncs.com')) return url;
+            if (type === 'video') {
+                // 视频：第1000毫秒截取一张 jpg 格式的图，指定宽300高300等比缩放
+                return url + '?x-oss-process=video/snapshot,t_1000,f_jpg,w_300,h_300,m_fast';
+            } else {
+                // 图片：等比缩放并居中裁剪成 300x300 的小图
+                return url + '?x-oss-process=image/resize,m_fill,w_300,h_300';
+            }
+        }
 
         // ============================
         // 数据云端同步 & 物理删除核心函数
@@ -512,7 +537,7 @@
         cancelBtn.onclick = resetSearchState;
         
         // ============================
-        // 住所操作与深度改造的侧边栏呈现逻辑
+        // 住所操作与侧边栏展示
         // ============================
         document.getElementById('houseIcon').onclick = async function() {
             if(!client) { alert("请先配置云端！"); return; }
@@ -539,7 +564,6 @@
             residenceMarkersMap[res.id] = marker;
         }
 
-        // 为住所定制的专属侧边栏展示
         function openSidebarForResidence(res) {
             currentPlaceId = null; 
             currentResId = res.id;
@@ -548,12 +572,10 @@
             document.getElementById('sb-custom-name').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
             document.getElementById('sb-searched-name').innerText = "住所相册展示";
             
-            // 切换设置面板显示内容
             document.getElementById('place-settings-content').style.display = 'none';
             document.getElementById('res-settings-content').style.display = 'block';
             document.getElementById('set-core-res-btn').style.display = res.isCore ? "none" : "block";
             
-            // 恢复/展示相关按钮
             document.getElementById('sb-setting-btn').style.display = 'block';
             document.getElementById('sb-stats').style.display = 'none';
             document.getElementById('sb-footer').style.display = 'flex';
@@ -582,14 +604,15 @@
 
             res.media.forEach((m, mIndex) => {
                 const wrapper = document.createElement('div');
-                wrapper.className = 'res-media-wrapper';
+                wrapper.className = 'preview-box clickable-res-media';
+                wrapper.setAttribute('data-index', mIndex);
                 
-                let mediaEl = m.type === 'video' ? 
-                    `<video src="${m.data}" class="clickable-res-media" data-index="${mIndex}"></video>` : 
-                    `<img src="${m.data}" class="clickable-res-media" data-index="${mIndex}">`;
+                let thumbUrl = getThumbnailUrl(m.data, m.type);
+                let overlay = m.type === 'video' ? '<div class="video-icon-overlay"></div>' : '';
 
                 wrapper.innerHTML = `
-                    ${mediaEl}
+                    <img src="${thumbUrl}">
+                    ${overlay}
                     <div class="delete-media-btn" data-index="${mIndex}">×</div>
                 `;
                 gallery.appendChild(wrapper);
@@ -627,7 +650,6 @@
             });
         }
 
-        // 住所配置项操作
         document.getElementById('set-core-res-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const oldState = JSON.stringify(savedResidences);
@@ -664,7 +686,6 @@
             });
         };
 
-        // 住所无进度条简单直传逻辑
         document.getElementById('cancel-res-upload-btn').onclick = () => {
             document.getElementById('res-upload-modal-overlay').style.display = 'none';
         };
@@ -967,7 +988,7 @@
         };
 
         // ============================
-        // 常规打卡渲染与彻底物理删除逻辑
+        // 常规打卡渲染
         // ============================
         function renderCheckins(place) {
             document.getElementById('visit-count').innerText = place.checkins.length;
@@ -981,8 +1002,14 @@
                 card.className = 'checkin-card';
                 
                 let mediaHtml = ci.media.map((m, mIndex) => {
-                    if(m.type === 'video') return `<video src="${m.data}" class="clickable-media" data-ci-id="${ci.id}" data-index="${mIndex}"></video>`;
-                    return `<img src="${m.data}" class="clickable-media" data-ci-id="${ci.id}" data-index="${mIndex}">`;
+                    let thumbUrl = getThumbnailUrl(m.data, m.type);
+                    let overlay = m.type === 'video' ? '<div class="video-icon-overlay"></div>' : '';
+                    return `
+                        <div class="preview-box clickable-media" data-ci-id="${ci.id}" data-index="${mIndex}">
+                            <img src="${thumbUrl}">
+                            ${overlay}
+                        </div>
+                    `;
                 }).join('');
 
                 card.innerHTML = `
@@ -1053,7 +1080,7 @@
         }
 
         // ============================
-        // 媒体查看器逻辑
+        // 媒体查看器逻辑 (此处拉取原视频/原图)
         // ============================
         function openMediaViewer(mediaArray, startIndex) {
             currentViewerMedia = mediaArray; currentViewerIndex = startIndex;
@@ -1082,16 +1109,21 @@
         }
 
         // ============================
-        // 常规打卡上传与分发添加逻辑
+        // 现有媒体的带缩略图弹窗预览
         // ============================
         function renderExistingMediaPreview() {
             const container = document.getElementById('ci-existing-media');
             container.innerHTML = '';
             currentExistingMedia.forEach((m, index) => {
                 const wrapper = document.createElement('div');
-                wrapper.className = 'preview-wrapper';
-                let mediaEl = m.type === 'video' ? `<video src="${m.data}"></video>` : `<img src="${m.data}">`;
-                wrapper.innerHTML = `${mediaEl}<div class="remove-existing-media" data-index="${index}">×</div>`;
+                wrapper.className = 'modal-preview-box';
+                let thumbUrl = getThumbnailUrl(m.data, m.type);
+                
+                wrapper.innerHTML = `
+                    <img src="${thumbUrl}">
+                    ${m.type === 'video' ? '<div class="video-icon-overlay" style="transform: translate(-50%, -50%) scale(0.6);"></div>' : ''}
+                    <div class="remove-existing-media" data-index="${index}">×</div>
+                `;
                 container.appendChild(wrapper);
             });
             document.querySelectorAll('#ci-existing-media .remove-existing-media').forEach(btn => {
@@ -1105,15 +1137,12 @@
 
         const checkinModal = document.getElementById('checkin-modal-overlay');
         
-        // + 号按钮的分流逻辑：住所 vs 常规打卡
         document.getElementById('add-checkin-btn').onclick = () => {
             if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return; }
             if (currentResId) {
-                // 打开住所上传小窗
                 document.getElementById('res-upload-media').value = '';
                 document.getElementById('res-upload-modal-overlay').style.display = 'flex';
             } else if (currentPlaceId) {
-                // 打开常规打卡小窗
                 editingCheckinId = null; currentExistingMedia = [];
                 document.getElementById('checkin-modal-title').innerText = '添加打卡';
                 document.getElementById('ci-date').value = '';
@@ -1126,7 +1155,6 @@
 
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
-        // 常规打卡无进度条简单直传
         document.getElementById('confirm-add-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
