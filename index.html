@@ -142,7 +142,7 @@
 
         /* 进度条样式 */
         .progress-container { width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; display: none; margin-top: 5px; }
-        .progress-bar { height: 100%; background-color: #28a745; width: 0%; transition: width 0.2s linear; }
+        .progress-bar { height: 100%; background-color: #28a745; width: 0%; transition: width 0.3s ease; }
 
         /* ========= 全屏媒体查看器样式 ========= */
         #media-viewer-overlay {
@@ -304,7 +304,7 @@
             <div class="progress-container" id="res-progress-container">
                 <div class="progress-bar" id="res-progress-bar"></div>
             </div>
-            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="res-progress-text">0%</div>
+            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="res-progress-text">等待传输...</div>
 
             <div class="modal-btns" style="margin-top: 15px;">
                 <button id="cancel-res-upload-btn" class="btn-cancel">取消</button>
@@ -327,7 +327,7 @@
             <div class="progress-container" id="ci-progress-container">
                 <div class="progress-bar" id="ci-progress-bar"></div>
             </div>
-            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="ci-progress-text">0%</div>
+            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="ci-progress-text">等待传输...</div>
 
             <div class="modal-btns" style="margin-top: 10px;">
                 <button id="cancel-add-btn" class="btn-cancel">取消</button>
@@ -345,7 +345,7 @@
 
     <script>
         // ============================
-        // 核心安全配置区：加入防超时与HTTPS
+        // 核心安全配置区
         // ============================
         let client = null;
 
@@ -359,9 +359,7 @@
                     region: 'oss-cn-hangzhou', 
                     accessKeyId: ak,       
                     accessKeySecret: sk, 
-                    bucket: bucket,
-                    secure: true,      // 强制使用 HTTPS 提升跨国传输安全性与稳定性
-                    timeout: 600000    // 容忍超时时间拉长至 10 分钟
+                    bucket: bucket
                 });
                 return true;
             }
@@ -423,7 +421,7 @@
         let savedPlaces = [];
         let initialCenter = HUAWEI_CENTER;
 
-        // 核心：基于 OSS 特性的缩略图获取函数
+        // 获取缩略图
         function getThumbnailUrl(url, type) {
             if (!url || !url.includes('aliyuncs.com')) return url;
             if (type === 'video') {
@@ -434,14 +432,13 @@
         }
 
         // ============================
-        // 数据云端同步 & 物理删除核心函数
+        // 数据云端同步 & 物理删除
         // ============================
         async function syncDataToOSS() {
             if(!client) { alert("请先点击右上角【云端配置】输入秘钥！"); return false; }
             const dataObj = { residences: savedResidences, places: savedPlaces };
             const blob = new Blob([JSON.stringify(dataObj)], { type: 'application/json' });
             try {
-                // JSON 数据很小，直传即可
                 await client.put('life-map-data.json', blob);
                 return true;
             } catch (e) {
@@ -701,7 +698,7 @@
             });
         };
 
-        // 住所：加入进度条与防断裂分片上传
+        // ====== 住所上传：直传(put) + 文件级进度条 ======
         document.getElementById('cancel-res-upload-btn').onclick = () => {
             document.getElementById('res-upload-modal-overlay').style.display = 'none';
         };
@@ -723,33 +720,30 @@
             progBar.style.width = '0%';
 
             let newMediaArr = [];
-            const bucket = localStorage.getItem('life_map_oss_bucket');
-            const region = 'oss-cn-hangzhou';
             
             for(let i=0; i<files.length; i++) {
                 let file = files[i];
                 let fileExt = file.name.split('.').pop();
                 let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                 
+                // 更新进度：开始传第 i 个文件
+                let percentBefore = ((i / files.length) * 100).toFixed(1) + '%';
+                progBar.style.width = percentBefore;
+                progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个文件...`;
+
                 try {
-                    // 使用多线程分片上传，降低网络波动带来的影响
-                    let result = await client.multipartUpload(safeName, file, {
-                        parallel: 2,           // 限制并发为2，避免海外网络拥堵
-                        partSize: 1024 * 1024, // 1MB 为一个切片，越小越稳
-                        progress: function (p) {
-                            let overallP = ((i + p) / files.length) * 100;
-                            let percent = overallP.toFixed(1) + '%';
-                            progBar.style.width = percent;
-                            progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个: ${percent}`;
-                        }
-                    });
-                    
-                    // 获取最终拼接的 URL
-                    let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
+                    // 核心：退回使用最稳妥的单次直传，避免复杂的握手
+                    let result = await client.put(safeName, file);
                     let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                    newMediaArr.push({ type: mediaType, data: finalUrl });
+                    newMediaArr.push({ type: mediaType, data: result.url });
+
+                    // 更新进度：第 i 个文件传完
+                    let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
+                    progBar.style.width = percentAfter;
+                    progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
+
                 } catch(e) {
-                    alert(`文件 ${file.name} 跨国上传失败，请稍后重试！`);
+                    alert(`文件 ${file.name} 跨国上传失败。\n如果您经常卡死，建议在阿里云 OSS 控制台为该 Bucket 开启【传输加速】！`);
                     console.error(e);
                     btn.innerText = "保存上传"; btn.disabled = false;
                     return; 
@@ -1201,7 +1195,7 @@
 
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
-        // 常规打卡：加入进度条与防断裂分片上传
+        // ====== 常规打卡：直传(put) + 文件级进度条 ======
         document.getElementById('confirm-add-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
@@ -1220,8 +1214,6 @@
             const progText = document.getElementById('ci-progress-text');
 
             let newMediaArr = [];
-            const bucket = localStorage.getItem('life_map_oss_bucket');
-            const region = 'oss-cn-hangzhou';
             
             if (files.length > 0) {
                 progContainer.style.display = 'block';
@@ -1233,23 +1225,24 @@
                     let fileExt = file.name.split('.').pop();
                     let safeName = `uploads/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                     
+                    // 更新进度：开始传第 i 个文件
+                    let percentBefore = ((i / files.length) * 100).toFixed(1) + '%';
+                    progBar.style.width = percentBefore;
+                    progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个文件...`;
+
                     try {
-                        let result = await client.multipartUpload(safeName, file, {
-                            parallel: 2,           // 降低并发求稳
-                            partSize: 1024 * 1024, // 1MB 为一个切片
-                            progress: function (p) {
-                                let overallP = ((i + p) / files.length) * 100;
-                                let percent = overallP.toFixed(1) + '%';
-                                progBar.style.width = percent;
-                                progText.innerText = `正在传输跨国数据 第 ${i+1}/${files.length} 个: ${percent}`;
-                            }
-                        });
-                        
-                        let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
+                        // 核心：单次直传
+                        let result = await client.put(safeName, file);
                         let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                        newMediaArr.push({ type: mediaType, data: finalUrl });
+                        newMediaArr.push({ type: mediaType, data: result.url });
+
+                        // 更新进度：第 i 个文件传完
+                        let percentAfter = (((i + 1) / files.length) * 100).toFixed(1) + '%';
+                        progBar.style.width = percentAfter;
+                        progText.innerText = `第 ${i+1}/${files.length} 个文件传输完成`;
+
                     } catch(e) {
-                        alert(`文件 ${file.name} 跨国上传失败，请稍后重试！`);
+                        alert(`文件 ${file.name} 跨国上传失败。\n如果您经常卡死，建议在阿里云 OSS 控制台为该 Bucket 开启【传输加速】！`);
                         console.error(e);
                         btn.innerText = "保存"; btn.disabled = false;
                         return;
