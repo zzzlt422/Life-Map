@@ -106,7 +106,7 @@
             border-radius: 50%; font-size: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
 
-        /* ========= 弹窗及进度条通用样式 ========= */
+        /* ========= 弹窗通用样式 ========= */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center;
@@ -126,10 +126,6 @@
         .preview-wrapper { position: relative; flex-shrink: 0; }
         .preview-wrapper img, .preview-wrapper video { height: 60px; border-radius: 4px; object-fit: cover; cursor: pointer; }
         .remove-existing-media { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; line-height: 16px; text-align: center; cursor: pointer; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-
-        /* 进度条样式 */
-        .progress-container { width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; display: none; margin-top: 5px; }
-        .progress-bar { height: 100%; background-color: #28a745; width: 0%; transition: width 0.2s linear; }
 
         /* ========= 全屏媒体查看器样式 ========= */
         #media-viewer-overlay {
@@ -285,11 +281,6 @@
             <label style="font-size: 12px; color: #666; margin-top: 10px;">选择新图片/视频进行上传</label>
             <input type="file" id="res-upload-media" multiple accept="image/*,video/*" style="margin-top: 5px;">
             
-            <div class="progress-container" id="res-progress-container">
-                <div class="progress-bar" id="res-progress-bar"></div>
-            </div>
-            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="res-progress-text">0%</div>
-            
             <div class="modal-btns" style="margin-top: 15px;">
                 <button id="cancel-res-upload-btn" class="btn-cancel">取消</button>
                 <button id="confirm-res-upload-btn" class="btn-primary">保存上传</button>
@@ -307,11 +298,6 @@
             
             <label style="font-size: 12px; color: #666; margin-bottom: -10px;">添加新图片/视频 (合并保存)</label>
             <input type="file" id="ci-media" multiple accept="image/*,video/*">
-            
-            <div class="progress-container" id="ci-progress-container">
-                <div class="progress-bar" id="ci-progress-bar"></div>
-            </div>
-            <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="ci-progress-text">0%</div>
             
             <div class="modal-btns" style="margin-top: 10px;">
                 <button id="cancel-add-btn" class="btn-cancel">取消</button>
@@ -675,7 +661,7 @@
             });
         };
 
-        // 住所上传带原生的进度条机制
+        // 住所无进度条简单直传逻辑
         document.getElementById('cancel-res-upload-btn').onclick = () => {
             document.getElementById('res-upload-modal-overlay').style.display = 'none';
         };
@@ -688,16 +674,7 @@
             const btn = document.getElementById('confirm-res-upload-btn');
             btn.innerText = "正在上传云端..."; btn.disabled = true;
 
-            const progContainer = document.getElementById('res-progress-container');
-            const progBar = document.getElementById('res-progress-bar');
-            const progText = document.getElementById('res-progress-text');
-            progContainer.style.display = 'block';
-            progText.style.display = 'block';
-            progBar.style.width = '0%';
-
             let newMediaArr = [];
-            const bucket = localStorage.getItem('life_map_oss_bucket');
-            const region = 'oss-cn-hangzhou';
             
             for(let i=0; i<files.length; i++) {
                 let file = files[i];
@@ -705,22 +682,14 @@
                 let safeName = `uploads/res_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                 
                 try {
-                    let result = await client.multipartUpload(safeName, file, {
-                        progress: function (p) {
-                            let overallP = ((i + p) / files.length) * 100;
-                            let percent = overallP.toFixed(1) + '%';
-                            progBar.style.width = percent;
-                            progText.innerText = `正在上传第 ${i+1}/${files.length} 个文件: ${percent}`;
-                        }
-                    });
-                    
-                    let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
+                    let result = await client.put(safeName, file);
                     let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                    newMediaArr.push({ type: mediaType, data: finalUrl });
+                    newMediaArr.push({ type: mediaType, data: result.url });
                 } catch(e) {
                     alert(`文件 ${file.name} 上传失败！`);
                     console.error(e);
-                    break; 
+                    btn.innerText = "保存上传"; btn.disabled = false;
+                    return; 
                 }
             }
 
@@ -1047,9 +1016,6 @@
                     document.getElementById('ci-date').value = checkin.date;
                     document.getElementById('ci-desc').value = checkin.desc;
                     document.getElementById('ci-media').value = '';
-                    
-                    document.getElementById('ci-progress-container').style.display = 'none';
-                    document.getElementById('ci-progress-text').style.display = 'none';
 
                     currentExistingMedia = [...checkin.media];
                     renderExistingMediaPreview();
@@ -1142,8 +1108,6 @@
             if (currentResId) {
                 // 打开住所上传小窗
                 document.getElementById('res-upload-media').value = '';
-                document.getElementById('res-progress-container').style.display = 'none';
-                document.getElementById('res-progress-text').style.display = 'none';
                 document.getElementById('res-upload-modal-overlay').style.display = 'flex';
             } else if (currentPlaceId) {
                 // 打开常规打卡小窗
@@ -1153,15 +1117,13 @@
                 document.getElementById('ci-desc').value = '';
                 document.getElementById('ci-media').value = '';
                 document.getElementById('ci-existing-media').innerHTML = ''; 
-                document.getElementById('ci-progress-container').style.display = 'none';
-                document.getElementById('ci-progress-text').style.display = 'none';
                 checkinModal.style.display = 'flex';
             }
         };
 
         document.getElementById('cancel-add-btn').onclick = () => { checkinModal.style.display = 'none'; };
 
-        // 常规打卡的带进度条上传
+        // 常规打卡无进度条简单直传
         document.getElementById('confirm-add-btn').onclick = async () => {
             if(!client) { alert("请先配置云端！"); return; }
             const dateStr = document.getElementById('ci-date').value.trim();
@@ -1175,37 +1137,18 @@
             const btn = document.getElementById('confirm-add-btn');
             btn.innerText = "正在上传云端..."; btn.disabled = true;
 
-            const progContainer = document.getElementById('ci-progress-container');
-            const progBar = document.getElementById('ci-progress-bar');
-            const progText = document.getElementById('ci-progress-text');
-
             let newMediaArr = [];
-            const bucket = localStorage.getItem('life_map_oss_bucket');
-            const region = 'oss-cn-hangzhou';
             
             if (files.length > 0) {
-                progContainer.style.display = 'block';
-                progText.style.display = 'block';
-                progBar.style.width = '0%';
-
                 for(let i=0; i<files.length; i++) {
                     let file = files[i];
                     let fileExt = file.name.split('.').pop();
                     let safeName = `uploads/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
                     
                     try {
-                        let result = await client.multipartUpload(safeName, file, {
-                            progress: function (p) {
-                                let overallP = ((i + p) / files.length) * 100;
-                                let percent = overallP.toFixed(1) + '%';
-                                progBar.style.width = percent;
-                                progText.innerText = `正在上传第 ${i+1}/${files.length} 个文件: ${percent}`;
-                            }
-                        });
-                        
-                        let finalUrl = `https://${bucket}.${region}.aliyuncs.com/${result.name}`;
+                        let result = await client.put(safeName, file);
                         let mediaType = file.type.startsWith('video') ? 'video' : 'image';
-                        newMediaArr.push({ type: mediaType, data: finalUrl });
+                        newMediaArr.push({ type: mediaType, data: result.url });
                     } catch(e) {
                         alert(`文件 ${file.name} 上传失败！`);
                         console.error(e);
