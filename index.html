@@ -47,6 +47,20 @@
         }
         .filter-icon { width: 35px; height: 35px; object-fit: cover; cursor: pointer; transition: all 0.2s ease; }
 
+        /* ========= 右下角快捷缩放按钮 ========= */
+        #quick-zoom-controls {
+            position: absolute; bottom: 30px; right: 20px; z-index: 100;
+            display: flex; gap: 10px;
+        }
+        .zoom-btn {
+            background: white; border: 1px solid #ddd; border-radius: 12px;
+            width: 45px; height: 45px; font-size: 22px; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .zoom-btn:hover { background: #f0f0f0; transform: scale(1.05); }
+        .zoom-btn:active { transform: scale(0.95); }
+
         /* ========= 侧边栏 ========= */
         #sidebar {
             position: absolute; top: 0; left: -350px; width: 350px; height: 100%; background: #f9f9f9;
@@ -192,6 +206,11 @@
         <img src="Images/happy.png" class="filter-icon" data-type="happy" alt="开心">
     </div>
 
+    <div id="quick-zoom-controls">
+        <button id="btn-zoom-core" class="zoom-btn" title="定位到核心住所">🏠</button>
+        <button id="btn-zoom-china" class="zoom-btn" title="全国概览">🗺️</button>
+    </div>
+
     <div id="save-bar">
         <p>Save as</p>
         <div class="icon-container">
@@ -300,12 +319,10 @@
             <h3 style="margin: 0; text-align: center;">添加住所媒体</h3>
             <label style="font-size: 12px; color: #666; margin-top: 10px;">选择新图片/视频进行上传</label>
             <input type="file" id="res-upload-media" multiple accept="image/*,video/*" style="margin-top: 5px;">
-            
             <div class="progress-container" id="res-progress-container">
                 <div class="progress-bar" id="res-progress-bar"></div>
             </div>
             <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="res-progress-text">等待传输...</div>
-
             <div class="modal-btns" style="margin-top: 15px;">
                 <button id="cancel-res-upload-btn" class="btn-cancel">取消</button>
                 <button id="confirm-res-upload-btn" class="btn-primary">保存上传</button>
@@ -318,17 +335,13 @@
             <h3 id="checkin-modal-title" style="margin: 0; text-align: center;">添加打卡</h3>
             <input type="text" id="ci-date" placeholder="时间 (必须如: 2026.3.12)">
             <textarea id="ci-desc" placeholder="描述..."></textarea>
-            
             <div id="ci-existing-media"></div>
-            
             <label style="font-size: 12px; color: #666; margin-bottom: -10px;">添加新图片/视频 (合并保存)</label>
             <input type="file" id="ci-media" multiple accept="image/*,video/*">
-            
             <div class="progress-container" id="ci-progress-container">
                 <div class="progress-bar" id="ci-progress-bar"></div>
             </div>
             <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px; display: none;" id="ci-progress-text">等待传输...</div>
-
             <div class="modal-btns" style="margin-top: 10px;">
                 <button id="cancel-add-btn" class="btn-cancel">取消</button>
                 <button id="confirm-add-btn" class="btn-primary">保存</button>
@@ -345,10 +358,40 @@
 
     <script>
         // ============================
-        // 核心：双客户端自动容灾降级初始化
+        // 全局变量及工具函数
         // ============================
-        let accClient = null; // 加速通道客户端 (专门负责上传大文件)
-        let stdClient = null; // 普通通道客户端 (兜底备份、拉取数据)
+        const HUAWEI_CENTER = [120.203022, 30.187895]; 
+        const CHINA_CENTER = [104.2, 36.0]; 
+        const CHINA_ZOOM = 4;
+        const CORE_ZOOM = 15;
+
+        let map, tempMarker;
+        let selectedLocation = null;
+        let selectedLocationName = "未知地点"; 
+        
+        let markersMap = {}; 
+        let residenceMarkersMap = {}; 
+        
+        let currentPlaceId = null; 
+        let currentResId = null; 
+        let pendingSaveType = null; 
+        
+        let editingCheckinId = null;
+        let currentExistingMedia = []; 
+
+        let currentViewerMedia = [];
+        let currentViewerIndex = 0;
+        let currentFilter = null; 
+
+        let savedResidences = [];
+        let savedPlaces = [];
+        
+        // 核心：视图状态追踪
+        let currentViewMode = null; 
+        let isAutoPanning = false; 
+
+        let accClient = null; 
+        let stdClient = null; 
 
         function initOSSClient() {
             const ak = localStorage.getItem('life_map_oss_ak');
@@ -356,7 +399,6 @@
             const bucket = localStorage.getItem('life_map_oss_bucket');
             
             if (ak && sk && bucket) {
-                // 1. 初始化加速客户端 (用于尝试高速上传)
                 accClient = new OSS({
                     endpoint: 'oss-accelerate.aliyuncs.com', 
                     accessKeyId: ak,       
@@ -366,7 +408,6 @@
                     timeout: 600000 
                 });
                 
-                // 2. 初始化普通客户端 (用于读取 JSON 数据，以及当加速失效时的无缝兜底)
                 stdClient = new OSS({
                     region: 'oss-cn-hangzhou', 
                     accessKeyId: ak,       
@@ -375,7 +416,6 @@
                     secure: true,
                     timeout: 600000 
                 });
-                
                 return true;
             }
             return false;
@@ -410,33 +450,6 @@
             }
         };
 
-        // ============================
-        // 全局变量及工具函数
-        // ============================
-        const HUAWEI_CENTER = [120.203022, 30.187895]; 
-        let map, tempMarker;
-        let selectedLocation = null;
-        let selectedLocationName = "未知地点"; 
-        
-        let markersMap = {}; 
-        let residenceMarkersMap = {}; 
-        
-        let currentPlaceId = null; 
-        let currentResId = null; 
-        let pendingSaveType = null; 
-        
-        let editingCheckinId = null;
-        let currentExistingMedia = []; 
-
-        let currentViewerMedia = [];
-        let currentViewerIndex = 0;
-        let currentFilter = null; 
-
-        let savedResidences = [];
-        let savedPlaces = [];
-        let initialCenter = HUAWEI_CENTER;
-
-        // 获取缩略图：继续沿用极度省流量的缩放参数
         function getThumbnailUrl(url, type) {
             if (!url || !url.includes('aliyuncs.com')) return url;
             if (type === 'video') {
@@ -446,20 +459,13 @@
             }
         }
 
-        // ============================
-        // 数据云端同步 & 物理删除
-        // ============================
         async function syncDataToOSS() {
             if(!stdClient) { alert("请先点击右上角【云端配置】输入秘钥！"); return false; }
             const dataObj = { residences: savedResidences, places: savedPlaces };
             const blob = new Blob([JSON.stringify(dataObj)], { type: 'application/json' });
             try {
-                // 存 JSON 这种极小的数据，也包裹一层容灾
-                try {
-                    await accClient.put('life-map-data.json', blob);
-                } catch(e) {
-                    await stdClient.put('life-map-data.json', blob);
-                }
+                try { await accClient.put('life-map-data.json', blob); } 
+                catch(e) { await stdClient.put('life-map-data.json', blob); }
                 return true;
             } catch (e) {
                 console.error("同步云端失败", e);
@@ -473,42 +479,25 @@
             try {
                 const urlObj = new URL(url);
                 const objectName = decodeURIComponent(urlObj.pathname.substring(1)); 
-                await stdClient.delete(objectName); // 删除指令非常轻量，用普通端即可
+                await stdClient.delete(objectName); 
             } catch (e) { console.error("物理删除失败:", e); }
         }
 
         // ============================
-        // 核心地图初始化与拉取
+        // 核心地图初始化与视图控制
         // ============================
-        async function loadDataAndRender() {
-            if(!stdClient) return;
-            try {
-                // 拉取数据使用普通端
-                const result = await stdClient.get('life-map-data.json');
-                const dataStr = new TextDecoder().decode(result.content);
-                const data = JSON.parse(dataStr);
-                
-                savedResidences = data.residences || [];
-                savedResidences.forEach(r => { if (!r.media) r.media = []; });
-                savedPlaces = data.places || [];
-
-                const coreRes = savedResidences.find(r => r.isCore);
-                if (coreRes) map.setCenter(coreRes.lnglat);
-
-                for(let key in markersMap) map.remove(markersMap[key]);
-                for(let key in residenceMarkersMap) map.remove(residenceMarkersMap[key]);
-                markersMap = {}; residenceMarkersMap = {};
-
-                savedResidences.forEach(res => drawResidenceMarker(res));
-                savedPlaces.forEach(place => drawPlaceMarker(place));
-                updateFilterUI();
-            } catch (e) { console.log("云端无数据或加载失败"); }
-        }
-
         function initMapSystem() {
+            const defaultView = localStorage.getItem('life_map_default_view') || 'china';
+            let initialZoom = defaultView === 'china' ? CHINA_ZOOM : CORE_ZOOM;
+            let initialCenter = defaultView === 'china' ? CHINA_CENTER : HUAWEI_CENTER;
+
             map = new AMap.Map('map-container', {
-                zoom: 15, center: HUAWEI_CENTER, features: ['bg', 'road', 'building', 'point'] 
+                zoom: initialZoom, center: initialCenter, features: ['bg', 'road', 'building', 'point'] 
             });
+
+            // 监听人为的拖拽或缩放操作，自动脱离“预设模式”
+            map.on('movestart', () => { if (!isAutoPanning) currentViewMode = null; });
+            map.on('zoomstart', () => { if (!isAutoPanning) currentViewMode = null; });
 
             let satelliteLayer = new AMap.TileLayer.Satellite({ zIndex: 0 });
             satelliteLayer.setMap(map);
@@ -545,6 +534,76 @@
             if (initOSSClient()) loadDataAndRender();
             else cloudModal.style.display = 'flex'; 
         }
+
+        async function loadDataAndRender() {
+            if(!stdClient) return;
+            try {
+                const result = await stdClient.get('life-map-data.json');
+                const dataStr = new TextDecoder().decode(result.content);
+                const data = JSON.parse(dataStr);
+                
+                savedResidences = data.residences || [];
+                savedResidences.forEach(r => { if (!r.media) r.media = []; });
+                savedPlaces = data.places || [];
+
+                for(let key in markersMap) map.remove(markersMap[key]);
+                for(let key in residenceMarkersMap) map.remove(residenceMarkersMap[key]);
+                markersMap = {}; residenceMarkersMap = {};
+
+                savedResidences.forEach(res => drawResidenceMarker(res));
+                savedPlaces.forEach(place => drawPlaceMarker(place));
+                updateFilterUI();
+
+                // 数据加载后，应用默认视图
+                const defaultView = localStorage.getItem('life_map_default_view') || 'china';
+                const coreRes = savedResidences.find(r => r.isCore);
+                
+                isAutoPanning = true;
+                if (defaultView === 'core' && coreRes) {
+                    map.setZoomAndCenter(CORE_ZOOM, coreRes.lnglat);
+                    currentViewMode = 'core';
+                } else {
+                    map.setZoomAndCenter(CHINA_ZOOM, CHINA_CENTER);
+                    currentViewMode = 'china';
+                }
+                setTimeout(() => { isAutoPanning = false; }, 500);
+
+            } catch (e) { console.log("云端无数据或加载失败"); }
+        }
+
+        // ============================
+        // 快捷缩放按钮点击逻辑
+        // ============================
+        document.getElementById('btn-zoom-core').onclick = () => {
+            const coreRes = savedResidences.find(r => r.isCore);
+            if (!coreRes) { alert("尚未设置核心住所！请先在地图上添加住所并设为核心。"); return; }
+
+            if (currentViewMode === 'core') {
+                if (confirm("是否将「核心住所」设为网页默认启动视角？")) {
+                    localStorage.setItem('life_map_default_view', 'core');
+                    alert("设置成功！下次打开将默认显示核心住所。");
+                }
+            } else {
+                isAutoPanning = true;
+                map.setZoomAndCenter(CORE_ZOOM, coreRes.lnglat);
+                currentViewMode = 'core';
+                setTimeout(() => { isAutoPanning = false; }, 500);
+            }
+        };
+
+        document.getElementById('btn-zoom-china').onclick = () => {
+            if (currentViewMode === 'china') {
+                if (confirm("是否将「全国概览」设为网页默认启动视角？")) {
+                    localStorage.setItem('life_map_default_view', 'china');
+                    alert("设置成功！下次打开将默认显示全国概览。");
+                }
+            } else {
+                isAutoPanning = true;
+                map.setZoomAndCenter(CHINA_ZOOM, CHINA_CENTER);
+                currentViewMode = 'china';
+                setTimeout(() => { isAutoPanning = false; }, 500);
+            }
+        };
 
         const searchInput = document.getElementById('searchInput');
         const cancelBtn = document.getElementById('cancelBtn');
@@ -692,7 +751,7 @@
                 document.getElementById('sb-custom-name').innerText = "🌟 核心住所";
                 document.getElementById('set-core-res-btn').style.display = "none";
                 document.getElementById('settings-panel').style.display = 'none';
-                alert("设置核心住所成功！下次打开将以此为中心。");
+                alert("设置核心住所成功！下次可以点击右下角按钮快速定位。");
             } else { savedResidences = JSON.parse(oldState); }
         };
 
@@ -755,16 +814,12 @@
                 let result;
                 try {
                     try {
-                        // 【首选】尝试通过阿里云专线加速上传
                         result = await accClient.put(safeName, file);
                     } catch (accErr) {
-                        // 【兜底】如果未开启加速服务或加速线路波动，无缝降级到普通杭州线路上传
                         console.warn(`文件 ${file.name} 加速通道失败，自动为您降级至普通通道上传...`, accErr);
                         result = await stdClient.put(safeName, file);
                     }
 
-                    // 【核心省钱逻辑】：无论怎么传上去的，最后保存入库时强制拼成普通节点的 URL！
-                    // 这样以后每次看图都只花最便宜的普通流量费！
                     let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${result.name}`;
                     let mediaType = file.type.startsWith('video') ? 'video' : 'image';
                     newMediaArr.push({ type: mediaType, data: standardUrl });
@@ -946,7 +1001,10 @@
             sidebar.classList.add('open');
             searchBox.style.opacity = '0'; 
             filterBar.style.transform = 'translate(-50%, 150px)'; 
+            
+            isAutoPanning = true;
             map.panBy(-150, 0); 
+            setTimeout(() => { isAutoPanning = false; }, 500);
         }
 
         function closeSidebar() {
@@ -1264,15 +1322,12 @@
                     let result;
                     try {
                         try {
-                            // 【首选】尝试通过阿里云专线加速上传
                             result = await accClient.put(safeName, file);
                         } catch (accErr) {
-                            // 【兜底】如果未开启加速服务或加速线路波动，无缝降级到普通杭州线路上传
                             console.warn(`文件 ${file.name} 加速通道失败，自动为您降级至普通通道上传...`, accErr);
                             result = await stdClient.put(safeName, file);
                         }
 
-                        // 【核心省钱逻辑】：无论怎么传上去的，最后保存入库时强制拼成普通节点的 URL！
                         let standardUrl = `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${result.name}`;
                         let mediaType = file.type.startsWith('video') ? 'video' : 'image';
                         newMediaArr.push({ type: mediaType, data: standardUrl });
