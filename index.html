@@ -34,7 +34,7 @@
             background: white; padding: 10px 20px; border-radius: 10px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); text-align: center;
         }
         #save-bar p { margin: 0 0 10px 0; font-size: 14px; color: #333; }
-        .icon-container { display: flex; gap: 15px; justify-content: center; }
+        .icon-container { display: flex; gap: 15px; justify-content: center; align-items: center; flex-wrap: wrap; max-width: 400px;}
         .category-icon { width: 40px; height: 40px; object-fit: cover; cursor: pointer; transition: transform 0.2s; }
         .category-icon:hover { transform: scale(1.1); }
 
@@ -70,7 +70,7 @@
         .settings-row:first-child { padding-top: 0; }
         .settings-row:last-child { border-bottom: none; padding-bottom: 0; }
         .category-switch-icons { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
-        .category-switch-icons img { width: 30px; height: 30px; cursor: pointer; border: 1px solid transparent; }
+        .category-switch-icons img { width: 30px; height: 30px; cursor: pointer; border: 1px solid transparent; object-fit: cover; }
         .category-switch-icons img:hover { border-color: #888; }
         #sb-delete-place { color: red; text-align: center; cursor: pointer; font-weight: bold; margin-top: 5px; }
 
@@ -172,6 +172,7 @@
         <img src="Images/fancy_food.png" class="filter-icon" data-type="fancy_food" alt="高档饭店">
         <img src="Images/clothes.png" class="filter-icon" data-type="clothes" alt="服饰">
         <img src="Images/book.png" class="filter-icon" data-type="book" alt="书店">
+        <img src="Images/happy.png" class="filter-icon" data-type="happy" alt="开心">
     </div>
 
     <div id="save-bar">
@@ -183,6 +184,7 @@
             <img src="Images/fancy_food.png" class="category-icon save-btn" data-type="fancy_food" alt="高档饭店">
             <img src="Images/clothes.png" class="category-icon save-btn" data-type="clothes" alt="服饰">
             <img src="Images/book.png" class="category-icon save-btn" data-type="book" alt="书店">
+            <img src="Images/happy.png" class="category-icon save-btn" data-type="happy" alt="开心">
             <img src="Images/house.png" class="category-icon" id="houseIcon" alt="住所">
         </div>
     </div>
@@ -214,6 +216,7 @@
                             <img src="Images/fancy_food.png" data-type="fancy_food">
                             <img src="Images/clothes.png" data-type="clothes">
                             <img src="Images/book.png" data-type="book">
+                            <img src="Images/happy.png" data-type="happy">
                         </div>
                     </div>
                     <div class="settings-row" id="sb-delete-place">彻底删除该地点</div>
