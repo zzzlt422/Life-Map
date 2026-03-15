@@ -50,7 +50,7 @@
         /* ========= 右下角快捷缩放按钮 ========= */
         #quick-zoom-controls {
             position: absolute; bottom: 30px; right: 20px; z-index: 100;
-            display: flex; gap: 10px;
+            display: flex; gap: 10px; transition: bottom 0.3s;
         }
         .zoom-btn {
             background: white; border: 1px solid #ddd; border-radius: 12px;
@@ -60,6 +60,17 @@
         }
         .zoom-btn:hover { background: #f0f0f0; transform: scale(1.05); }
         .zoom-btn:active { transform: scale(0.95); }
+
+        /* 响应式设计：手机端错开重叠区域 */
+        @media (max-width: 768px) {
+            #quick-zoom-controls {
+                bottom: 100px; /* 自动上移，避开底部的类别图标 */
+            }
+            #filter-bar, #save-bar {
+                width: 90%;
+                flex-wrap: wrap;
+            }
+        }
 
         /* ========= 侧边栏 ========= */
         #sidebar {
@@ -208,7 +219,7 @@
 
     <div id="quick-zoom-controls">
         <button id="btn-zoom-core" class="zoom-btn" title="定位到核心住所">🏠</button>
-        <button id="btn-zoom-china" class="zoom-btn" title="全国概览">🗺️</button>
+        <button id="btn-zoom-china" class="zoom-btn" title="自适应全局概览">🗺️</button>
     </div>
 
     <div id="save-bar">
@@ -360,9 +371,8 @@
         // ============================
         // 全局变量及工具函数
         // ============================
+        const ICON_BASE = 'https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/';
         const HUAWEI_CENTER = [120.203022, 30.187895]; 
-        const CHINA_CENTER = [104.2, 36.0]; 
-        const CHINA_ZOOM = 4;
         const CORE_ZOOM = 15;
 
         let map, tempMarker;
@@ -401,7 +411,7 @@
             if (ak && sk && bucket) {
                 accClient = new OSS({
                     endpoint: 'oss-accelerate.aliyuncs.com', 
-                    accessKeyId: ak,        
+                    accessKeyId: ak,       
                     accessKeySecret: sk, 
                     bucket: bucket,
                     secure: true,
@@ -410,7 +420,7 @@
                 
                 stdClient = new OSS({
                     region: 'oss-cn-hangzhou', 
-                    accessKeyId: ak,        
+                    accessKeyId: ak,       
                     accessKeySecret: sk, 
                     bucket: bucket,
                     secure: true,
@@ -484,15 +494,29 @@
         }
 
         // ============================
+        // 核心自适应缩放计算函数
+        // ============================
+        function zoomToAllFeatures() {
+            let allMarkers = [];
+            for (let key in markersMap) allMarkers.push(markersMap[key]);
+            for (let key in residenceMarkersMap) allMarkers.push(residenceMarkersMap[key]);
+            
+            if (allMarkers.length === 0) {
+                // 如果毫无数据，默认显示大致中国区域
+                map.setZoomAndCenter(4, [104.2, 36.0]);
+            } else {
+                // 自动框定所有已标记的坐标点，四边留白 50px
+                map.setFitView(allMarkers, false, [50, 50, 50, 50]);
+            }
+            currentViewMode = 'china';
+        }
+
+        // ============================
         // 核心地图初始化与视图控制
         // ============================
         function initMapSystem() {
-            const defaultView = localStorage.getItem('life_map_default_view') || 'china';
-            let initialZoom = defaultView === 'china' ? CHINA_ZOOM : CORE_ZOOM;
-            let initialCenter = defaultView === 'china' ? CHINA_CENTER : HUAWEI_CENTER;
-
             map = new AMap.Map('map-container', {
-                zoom: initialZoom, center: initialCenter, features: ['bg', 'road', 'building', 'point'] 
+                zoom: 4, center: [104.2, 36.0], features: ['bg', 'road', 'building', 'point'] 
             });
 
             // 监听人为的拖拽或缩放操作，自动脱离“预设模式”
@@ -563,8 +587,7 @@
                     map.setZoomAndCenter(CORE_ZOOM, coreRes.lnglat);
                     currentViewMode = 'core';
                 } else {
-                    map.setZoomAndCenter(CHINA_ZOOM, CHINA_CENTER);
-                    currentViewMode = 'china';
+                    zoomToAllFeatures(); // 使用智能自适应视角
                 }
                 setTimeout(() => { isAutoPanning = false; }, 500);
 
@@ -593,14 +616,13 @@
 
         document.getElementById('btn-zoom-china').onclick = () => {
             if (currentViewMode === 'china') {
-                if (confirm("是否将「全国概览」设为网页默认启动视角？")) {
+                if (confirm("是否将「全局自适应概览」设为网页默认启动视角？")) {
                     localStorage.setItem('life_map_default_view', 'china');
-                    alert("设置成功！下次打开将默认显示全国概览。");
+                    alert("设置成功！下次打开将默认显示全局概览。");
                 }
             } else {
                 isAutoPanning = true;
-                map.setZoomAndCenter(CHINA_ZOOM, CHINA_CENTER);
-                currentViewMode = 'china';
+                zoomToAllFeatures();
                 setTimeout(() => { isAutoPanning = false; }, 500);
             }
         };
@@ -618,7 +640,7 @@
             if (tempMarker) map.remove(tempMarker);
             tempMarker = new AMap.Marker({
                 position: selectedLocation,
-                icon: new AMap.Icon({ size: new AMap.Size(24, 36), image: 'https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/pin.png', imageSize: new AMap.Size(24, 36) }),
+                icon: new AMap.Icon({ size: new AMap.Size(24, 36), image: ICON_BASE + 'pin.png', imageSize: new AMap.Size(24, 36) }),
                 offset: new AMap.Pixel(-12, -36), map: map
             });
             filterBar.style.display = 'none';
@@ -646,7 +668,7 @@
         function drawResidenceMarker(res) {
             let marker = new AMap.Marker({
                 position: res.lnglat, 
-                icon: new AMap.Icon({ size: new AMap.Size(40, 40), image: 'https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/house.png', imageSize: new AMap.Size(40, 40) }),
+                icon: new AMap.Icon({ size: new AMap.Size(40, 40), image: ICON_BASE + 'house.png', imageSize: new AMap.Size(40, 40) }),
                 offset: new AMap.Pixel(-20, -40), map: map
             });
             marker.on('click', () => {
@@ -660,7 +682,7 @@
             currentPlaceId = null; 
             currentResId = res.id;
             
-            document.getElementById('sb-icon').src = `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/house.png`;
+            document.getElementById('sb-icon').src = ICON_BASE + 'house.png';
             document.getElementById('sb-custom-name').innerText = res.isCore ? "🌟 核心住所" : "普通住所";
             document.getElementById('sb-searched-name').innerText = "住所相册展示";
             
@@ -931,7 +953,7 @@
         function drawPlaceMarker(place) {
             let marker = new AMap.Marker({
                 position: place.lnglat,
-                icon: new AMap.Icon({ size: new AMap.Size(30, 30), image: `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/${place.type}.png`, imageSize: new AMap.Size(30, 30) }),
+                icon: new AMap.Icon({ size: new AMap.Size(30, 30), image: ICON_BASE + place.type + '.png', imageSize: new AMap.Size(30, 30) }),
                 offset: new AMap.Pixel(-15, -15), map: map
             });
             marker.on('click', () => openSidebar(place.id));
@@ -969,7 +991,7 @@
                 const oldPlace = savedPlaces.find(p => p.id === currentPlaceId);
                 if (oldPlace) {
                     markersMap[currentPlaceId].setIcon(new AMap.Icon({
-                        size: new AMap.Size(30, 30), image: `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/${oldPlace.type}.png`, imageSize: new AMap.Size(30, 30)
+                        size: new AMap.Size(30, 30), image: ICON_BASE + oldPlace.type + '.png', imageSize: new AMap.Size(30, 30)
                     }));
                     markersMap[currentPlaceId].setOffset(new AMap.Pixel(-15, -15));
                     markersMap[currentPlaceId].setTop(false);
@@ -982,13 +1004,13 @@
 
             if (markersMap[id]) {
                 markersMap[id].setIcon(new AMap.Icon({
-                    size: new AMap.Size(60, 60), image: `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/${place.type}.png`, imageSize: new AMap.Size(60, 60)
+                    size: new AMap.Size(60, 60), image: ICON_BASE + place.type + '.png', imageSize: new AMap.Size(60, 60)
                 }));
                 markersMap[id].setOffset(new AMap.Pixel(-30, -30));
                 markersMap[id].setTop(true);
             }
 
-            document.getElementById('sb-icon').src = `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/${place.type}.png`;
+            document.getElementById('sb-icon').src = ICON_BASE + place.type + '.png';
             document.getElementById('sb-custom-name').innerText = place.customName;
             document.getElementById('sb-searched-name').innerText = place.searchedName;
             
@@ -1012,7 +1034,7 @@
                 const place = savedPlaces.find(p => p.id === currentPlaceId);
                 if (place) {
                     markersMap[currentPlaceId].setIcon(new AMap.Icon({
-                        size: new AMap.Size(30, 30), image: `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/${place.type}.png`, imageSize: new AMap.Size(30, 30)
+                        size: new AMap.Size(30, 30), image: ICON_BASE + place.type + '.png', imageSize: new AMap.Size(30, 30)
                     }));
                     markersMap[currentPlaceId].setOffset(new AMap.Pixel(-15, -15));
                     markersMap[currentPlaceId].setTop(false);
@@ -1064,12 +1086,12 @@
                     savedPlaces[placeIndex].type = newType;
                     
                     if(await syncDataToOSS()){
-                        document.getElementById('sb-icon').src = `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/${newType}.png`;
+                        document.getElementById('sb-icon').src = ICON_BASE + newType + '.png';
                         map.remove(markersMap[currentPlaceId]);
                         drawPlaceMarker(savedPlaces[placeIndex]);
                         
                         markersMap[currentPlaceId].setIcon(new AMap.Icon({
-                            size: new AMap.Size(60, 60), image: `https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/${newType}.png`, imageSize: new AMap.Size(60, 60)
+                            size: new AMap.Size(60, 60), image: ICON_BASE + newType + '.png', imageSize: new AMap.Size(60, 60)
                         }));
                         markersMap[currentPlaceId].setOffset(new AMap.Pixel(-30, -30));
                         markersMap[currentPlaceId].setTop(true);
@@ -1138,7 +1160,7 @@
                     <div class="checkin-header">
                         <span>${ci.date}</span>
                         <div class="checkin-actions">
-                            <img src="https://life-map.oss-cn-hangzhou.aliyuncs.com/Images/setting.png" class="edit-checkin-btn" data-id="${ci.id}" alt="编辑">
+                            <img src="${ICON_BASE}setting.png" class="edit-checkin-btn" data-id="${ci.id}" alt="编辑">
                             <span class="delete-checkin-btn" data-id="${ci.id}">×</span>
                         </div>
                     </div>
